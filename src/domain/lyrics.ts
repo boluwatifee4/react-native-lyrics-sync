@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+// --- PLAYBACK & SYNC STATUS TYPES ---
+
+export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'ended';
+
+export interface PlaybackSnapshot {
+  state: PlaybackState;
+  positionMs: number;
+  durationMs: number;
+  bufferedMs?: number;
+}
+
+export type SyncStatus = 'draft' | 'line_synced' | 'word_synced' | 'published';
+
 // --- ZOD SCHEMAS & DOMAIN TYPES ---
 
 export const LyricWordSchema = z.object({
@@ -26,7 +39,7 @@ export const TrackSchema = z.object({
   audioUri: z.string(),
   coverUri: z.string().optional(),
   durationMs: z.number().int().nonnegative(),
-  syncStatus: z.enum(['draft', 'line_synced', 'word_synced']),
+  syncStatus: z.enum(['draft', 'line_synced', 'word_synced', 'published']),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -49,6 +62,8 @@ export interface ActiveSyncState {
  * Time complexity: O(log N)
  */
 export function findActiveLineIndex(lines: LyricLine[], timeMs: number): number {
+  if (!lines || lines.length === 0) return -1;
+
   let low = 0;
   let high = lines.length - 1;
 
@@ -56,7 +71,7 @@ export function findActiveLineIndex(lines: LyricLine[], timeMs: number): number 
     const mid = (low + high) >> 1;
     const line = lines[mid];
 
-    if (timeMs >= line.startMs && timeMs <= line.endMs) {
+    if (timeMs >= line.startMs && timeMs <= line.endMs && line.startMs < line.endMs) {
       return mid;
     } else if (timeMs < line.startMs) {
       high = mid - 1;
@@ -65,24 +80,26 @@ export function findActiveLineIndex(lines: LyricLine[], timeMs: number): number 
     }
   }
 
-  // If between lines, find nearest preceding line
-  if (lines.length > 0 && timeMs > lines[lines.length - 1].endMs) {
-    return lines.length - 1;
-  }
-
+  // Fallback for gaps between lines
   for (let i = 0; i < lines.length - 1; i++) {
-    if (timeMs >= lines[i].endMs && timeMs < lines[i + 1].startMs) {
+    if (lines[i].startMs > 0 && timeMs >= lines[i].endMs && timeMs < lines[i + 1].startMs) {
       return i;
     }
   }
 
-  return lines.length > 0 && timeMs >= lines[0].startMs ? 0 : -1;
+  if (timeMs >= lines[lines.length - 1].startMs && lines[lines.length - 1].startMs > 0) {
+    return lines.length - 1;
+  }
+
+  return lines.length > 0 && timeMs >= lines[0].startMs && lines[0].startMs > 0 ? 0 : -1;
 }
 
 /**
  * Binary search to find the active word index within a line.
  */
 export function findActiveWordIndex(words: LyricWord[], timeMs: number): number {
+  if (!words || words.length === 0) return -1;
+
   let low = 0;
   let high = words.length - 1;
 
