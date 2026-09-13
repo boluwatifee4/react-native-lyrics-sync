@@ -11,18 +11,32 @@ Built with Expo SDK 57, TypeScript, and the React Native New Architecture.
 ### 🎧 Listener Player
 - **Real-time lyric scrolling** that highlights the active line as audio plays
 - **Tap any line to seek** directly to that moment in the song
+- **Tappable waveform** — tap anywhere on the waveform to jump to a position
 - Transport controls: play/pause, skip ±5 seconds
 - Progress bar with current/total time display
 
 ### ✏️ Sync Editor — "Tap-Along Recording"
 - **One-tap sync workflow**: play the song, tap a big button each time the singer starts a new line
+- **Line / Word mode toggle**: tap whole lines, or drill into word-level sync with tappable word chips
+- **Word-level sync**: mark each word as it's sung; the last line only completes once its final word is captured
 - **Three visual line states**: ✓ synced (green), ▶ active (cyan), · waiting (gray)
 - **Instant feedback**: green flash overlay + haptic vibration on each mark
-- **Undo**: reverts the last mark and rewinds audio 3 seconds for re-marking
+- **Undo**: reverts the last mark and rewinds audio 3 seconds for re-marking (pauses/seeks/resumes smoothly)
+- **Per-line delay**: nudge any line's timing by ±10 / ±100 ms
 - **Start Over**: clears all timestamps with confirmation (undoable)
 - **Auto-finish**: last line's end time is set to the audio duration automatically
-- **🎉 Celebration state**: visual "All Done!" when every line is synced
+- **🎉 Celebration state**: collapsible "All Done!" banner when every line is synced
 - **Progress indicator**: "Line 3 of 5 synced" with a fill bar
+
+### 🛠️ Fine Tune Screen
+- Open from the "All Done!" state for post-sync corrections
+- **Per-line nudge** ±10 / ±100 ms and **per-word nudge** for boundary fixes
+- **Listen to this line** to audition a single line's timing
+- All edits stay in the undo history and can be saved
+
+### 📤 LRC Export
+- Export synced lyrics as an `.lrc` file (with optional word-level offline tags)
+- Uses the native share sheet via `expo-sharing`
 
 ### 📂 Track Management
 - **Import by URL**: paste an `.mp3` or `.m4a` link
@@ -43,6 +57,8 @@ Built with Expo SDK 57, TypeScript, and the React Native New Architecture.
 | State | [Zustand](https://zustand-demo.pmnd.rs/) |
 | Audio | [expo-audio](https://docs.expo.dev/versions/latest/sdk/audio/) |
 | Database | [expo-sqlite](https://docs.expo.dev/versions/latest/sdk/sqlite/) |
+| File System | [expo-file-system](https://docs.expo.dev/versions/latest/sdk/filesystem/) |
+| Sharing | [expo-sharing](https://docs.expo.dev/versions/latest/sdk/sharing/) |
 | Haptics | [expo-haptics](https://docs.expo.dev/versions/latest/sdk/haptics/) |
 | Validation | [Zod](https://zod.dev/) |
 | Animations | React Native `Animated` API |
@@ -63,13 +79,17 @@ src/
 │
 ├── domain/                       # Pure business logic (no React)
 │   ├── lyrics.ts                 # Zod schemas, types, binary search algorithms
-│   └── timelineEngine.ts         # One-tap mark, undo/redo, reset, LRC parser
+│   └── timelineEngine.ts         # One-tap mark (line+word), undo/redo, reset,
+│                                 # nudge/shift helpers, LRC parse & build
 │
 ├── features/
 │   ├── creator/
-│   │   └── components/
-│   │       ├── SyncEditorView.tsx    # Main sync editor UI
-│   │       └── ImportTrackModal.tsx  # Track import form
+│   │   ├── components/
+│   │   │   ├── SyncEditorView.tsx    # Main sync editor UI
+│   │   │   ├── FineTuneScreen.tsx    # Post-sync per-line/word nudge screen
+│   │   │   └── ImportTrackModal.tsx  # Track import form
+│   │   └── services/
+│   │       └── lrcExporter.ts        # Write + share .lrc files
 │   │
 │   ├── player/
 │   │   ├── store/
@@ -79,7 +99,7 @@ src/
 │   │
 │   └── synchronization/
 │       ├── components/
-│       │   ├── AudioWaveform.tsx           # Pseudo-amplitude waveform display
+│       │   ├── AudioWaveform.tsx           # Tappable pseudo-amplitude waveform
 │       │   ├── SynchronizedLyricsView.tsx  # Real-time lyric scroller
 │       │   └── LyricWordItem.tsx           # Word-level display component
 │       └── hooks/
@@ -129,6 +149,13 @@ Audio source: `https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-n
 6. After all lines are marked, tap **Save** to persist your sync to the database
 7. Switch to the **Listener Player** tab to see your lyrics scroll in real-time
 
+### Word-level sync
+
+1. After (or before) line sync, flip the toggle to **Word** mode in the Sync Editor
+2. Tap a line to select it — its words appear as chips below the line list
+3. Tap the big button each time you hear a word start; the chips fill green as you go
+4. Use the **Fine Tune** screen (from the "All Done!" state) to nudge any line or word by ±10 / ±100 ms
+
 ---
 
 ## Architecture
@@ -139,11 +166,14 @@ The native `expo-audio` player status is the **single source of truth** for time
 ### Timeline Engine (Pure Functions)
 All sync logic lives in `src/domain/timelineEngine.ts` as **pure functions** with no React dependency:
 - `markLineBoundary()` — One-tap: sets current line's startMs, closes previous line's endMs, advances cursor
-- `markWordBoundary()` — Same concept for word-level sync
+- `markWordBoundary()` — Word-level capture: sets word's startMs, closes the previous word/line, anchors line startMs
+- `finishLastLine()` / `finishLastWord()` — Auto-close the final line/word's endMs to the audio duration
+- `shiftLineTimestamp()` / `shiftWordTimestamp()` — Nudge a whole line (incl. words) or a single word by ±ms
+- `nudgeLineTimestamp()` / `nudgeWordTimestamp()` — Field-level micro-adjustments
 - `undoSyncAction()` / `redoSyncAction()` — Immutable history stack
 - `resetAllTimestamps()` — "Start Over" (undoable)
-- `finishLastLine()` — Auto-closes last line's endMs to audio duration
 - `parseLyricsDocument()` — Handles plain text and LRC format
+- `buildLrcText()` — Serializes synced lines to standard `.lrc` text
 
 ### State Management
 - **Zustand** (`usePlayerStore`) for global state: active track, lyrics, playback position
@@ -159,9 +189,9 @@ SQLite via `expo-sqlite` with three tables:
 
 ## Future Roadmap
 
-- [ ] **Fine Tune screen** — Word-level sync + nudge ±100ms per line/word
-- [ ] **LRC export** — Export synced lyrics as `.lrc` files
-- [ ] **Waveform seeking** — Tap the waveform to jump to a position
+- [x] **Fine Tune screen** — Word-level sync + nudge ±100ms per line/word
+- [x] **LRC export** — Export synced lyrics as `.lrc` files
+- [x] **Waveform seeking** — Tap the waveform to jump to a position
 - [ ] **Real audio waveform** — Replace pseudo bars with actual amplitude data
 - [ ] **Batch import** — Import multiple tracks at once
 

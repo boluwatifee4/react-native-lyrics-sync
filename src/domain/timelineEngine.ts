@@ -180,6 +180,46 @@ export function shiftLineTimestamp(
 }
 
 /**
+ * Shifts a single word's start + end timestamps by deltaMs (Fine Tune).
+ */
+export function shiftWordTimestamp(
+  history: SyncHistoryState,
+  lineIndex: number,
+  wordIndex: number,
+  deltaMs: number
+): SyncHistoryState {
+  const currentLines = history.present;
+  if (
+    lineIndex < 0 ||
+    lineIndex >= currentLines.length ||
+    wordIndex < 0 ||
+    wordIndex >= currentLines[lineIndex].words.length
+  ) {
+    return history;
+  }
+
+  const updatedLines = currentLines.map((line, lIdx) => {
+    if (lIdx !== lineIndex) return line;
+    const words = line.words.map((w, wIdx) =>
+      wIdx === wordIndex
+        ? {
+            ...w,
+            startMs: Math.max(0, w.startMs + deltaMs),
+            endMs: Math.max(0, w.endMs + deltaMs),
+          }
+        : w
+    );
+    return { ...line, words };
+  });
+
+  return {
+    past: [...history.past, history.present],
+    present: updatedLines,
+    future: [],
+  };
+}
+
+/**
  * Nudges a line timestamp by deltaMs (+/- 100ms).
  */
 export function nudgeLineTimestamp(
@@ -318,6 +358,37 @@ export function parseLyricsDocument(content: string): Array<{ text: string; star
   }
 
   return parsed;
+}
+
+function formatLrcTimestamp(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  const cents = Math.floor((Math.max(0, ms) % 1000) / 10);
+  return `[${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cents).padStart(2, '0')}]`;
+}
+
+/**
+ * Builds standard LRC text from synced lines (`[mm:ss.xx] Line text`).
+ * Lines without a start timestamp are skipped.
+ */
+export function buildLrcText(lines: LyricLine[]): string {
+  if (!lines || lines.length === 0) return '';
+
+  const blocks: string[] = ['[ti:Lyric Sync]'];
+  for (const line of lines) {
+    if (line.startMs <= 0) continue;
+    blocks.push(`${formatLrcTimestamp(line.startMs)}${line.text}`);
+    if (line.words && line.words.length > 0 && line.words.length < 12) {
+      // Optional word-level offset tag (enhanced LRC) — kept minimal
+      const wordTag = line.words
+        .map((w) => `<${formatLrcTimestamp(w.startMs)}>${w.text}`)
+        .join('');
+      blocks.push(`${formatLrcTimestamp(line.startMs)}${wordTag}`);
+    }
+  }
+
+  return blocks.join('\n') + '\n';
 }
 
 /**

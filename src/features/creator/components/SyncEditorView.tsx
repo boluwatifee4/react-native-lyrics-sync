@@ -22,6 +22,7 @@ import {
   finishLastLine,
   finishLastWord,
   shiftLineTimestamp,
+  shiftWordTimestamp,
   undoSyncAction,
   resetAllTimestamps,
 } from '../../../domain/timelineEngine';
@@ -29,6 +30,8 @@ import { LyricLine } from '../../../domain/lyrics';
 import { AudioWaveform } from '../../synchronization/components/AudioWaveform';
 import { ImportTrackModal } from './ImportTrackModal';
 import { TrackLibraryModal } from '../../player/components/TrackLibraryModal';
+import { FineTuneScreen } from './FineTuneScreen';
+import { exportLyricsAsLrc } from '../services/lrcExporter';
 
 // ─── Line State Enum ───────────────────────────────────────────
 type LineState = 'synced' | 'active' | 'waiting';
@@ -71,6 +74,7 @@ export const SyncEditorView: React.FC = () => {
 
   const [mode, setMode] = useState<'line' | 'word'>('line');
   const [celebrateExpanded, setCelebrateExpanded] = useState(false);
+  const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
 
   const audioUri = activeTrack?.audioUri || 'https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-new.mp3';
   const player = useAudioPlayer(audioUri);
@@ -302,6 +306,39 @@ export const SyncEditorView: React.FC = () => {
     Haptics.selectionAsync().catch(() => {});
   }, [history, mode, selectedLineIndex, activeLineIndex, currentLines.length]);
 
+  // ─── Fine Tune handlers ────────────────────────────────────
+  const handleNudgeLine = useCallback((lineIndex: number, deltaMs: number) => {
+    const nextHistory = shiftLineTimestamp(history, lineIndex, deltaMs);
+    setHistory(nextHistory);
+    usePlayerStore.setState({ lyrics: nextHistory.present });
+    Haptics.selectionAsync().catch(() => {});
+  }, [history]);
+
+  const handleNudgeWord = useCallback((lineIndex: number, wordIndex: number, deltaMs: number) => {
+    const nextHistory = shiftWordTimestamp(history, lineIndex, wordIndex, deltaMs);
+    setHistory(nextHistory);
+    usePlayerStore.setState({ lyrics: nextHistory.present });
+    Haptics.selectionAsync().catch(() => {});
+  }, [history]);
+
+  const handleRestorePlayback = useCallback((targetMs: number) => {
+    player.pause();
+    setPositionMs(targetMs);
+    player.seekTo(targetMs / 1000);
+    setTimeout(() => player.play(), 60);
+  }, [player, setPositionMs]);
+
+  // ─── LRC export ────────────────────────────────────────────
+  const handleExportLrc = useCallback(async () => {
+    if (!activeTrack) return;
+    try {
+      await exportLyricsAsLrc(currentLines, activeTrack.title);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } catch (e: any) {
+      Alert.alert('Export Failed', e.message || 'Could not export .lrc');
+    }
+  }, [activeTrack, currentLines]);
+
   // ─── Transport Controls ────────────────────────────────────
   const togglePlayPause = () => {
     if (status.playing) {
@@ -398,7 +435,14 @@ export const SyncEditorView: React.FC = () => {
       </View>
 
       {/* ─── WAVEFORM ─── */}
-      <AudioWaveform positionMs={currentMs} durationMs={totalMs} />
+      <AudioWaveform
+        positionMs={currentMs}
+        durationMs={totalMs}
+        onSeekRequested={(ms) => {
+          player.seekTo(ms / 1000);
+          setPositionMs(ms);
+        }}
+      />
 
       {/* ─── GREEN FLASH OVERLAY ─── */}
       <Animated.View
@@ -585,12 +629,29 @@ export const SyncEditorView: React.FC = () => {
               <Ionicons name="checkmark-circle" size={20} color="#000000" />
               <Text style={styles.saveBtnText}>Save Sync</Text>
             </TouchableOpacity>
+            <View style={styles.celebrationActions}>
+              <TouchableOpacity style={styles.celebrationActionBtn} onPress={() => setIsFineTuneOpen(true)}>
+                <Ionicons name="options-outline" size={16} color="#00E5FF" />
+                <Text style={styles.celebrationActionText}>Fine Tune</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.celebrationActionBtn} onPress={handleExportLrc}>
+                <Ionicons name="download-outline" size={16} color="#00E5FF" />
+                <Text style={styles.celebrationActionText}>Export .lrc</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <View style={styles.celebrationBar}>
             <Text style={styles.celebrationBarText} numberOfLines={1}>
               🎉 All {currentLines.length} lines synced
             </Text>
+            <TouchableOpacity
+              style={styles.celebrationSaveBtn}
+              onPress={() => setIsFineTuneOpen(true)}
+            >
+              <Ionicons name="options-outline" size={16} color="#00E5FF" />
+              <Text style={[styles.celebrationSaveText, { color: '#00E5FF' }]}>Fine Tune</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.celebrationSaveBtn} onPress={handleSave}>
               <Ionicons name="checkmark-circle" size={16} color="#000000" />
               <Text style={styles.celebrationSaveText}>Save</Text>
@@ -670,6 +731,17 @@ export const SyncEditorView: React.FC = () => {
         visible={isLibraryModalOpen}
         onClose={() => setIsLibraryModalOpen(false)}
         onOpenImport={() => setIsImportModalOpen(true)}
+      />
+      <FineTuneScreen
+        visible={isFineTuneOpen}
+        onClose={() => setIsFineTuneOpen(false)}
+        lines={currentLines}
+        currentMs={currentMs}
+        isPlaying={status.playing}
+        onPlayPause={togglePlayPause}
+        onSeek={handleRestorePlayback}
+        onNudgeLine={handleNudgeLine}
+        onNudgeWord={handleNudgeWord}
       />
     </View>
   );
@@ -1113,6 +1185,27 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 16,
     fontWeight: '900',
+  },
+  celebrationActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  celebrationActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#12151E',
+    borderWidth: 1,
+    borderColor: '#00E5FF40',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  celebrationActionText: {
+    color: '#00E5FF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   // Bottom row

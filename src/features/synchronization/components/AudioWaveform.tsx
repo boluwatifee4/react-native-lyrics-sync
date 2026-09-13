@@ -1,10 +1,11 @@
-import React from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Text, Pressable, LayoutChangeEvent } from 'react-native';
 
 interface AudioWaveformProps {
   positionMs: number;
   durationMs: number;
   height?: number;
+  onSeekRequested?: (ms: number) => void;
 }
 
 // Generate realistic pseudo-amplitude waveform bars
@@ -18,7 +19,10 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
   positionMs,
   durationMs,
   height = 48,
+  onSeekRequested,
 }) => {
+  const [containerWidth, setContainerWidth] = useState(0);
+
   const progressRatio = durationMs > 0 ? Math.min(1.0, positionMs / durationMs) : 0;
   const activeBarIndex = Math.floor(progressRatio * SAMPLE_BARS.length);
 
@@ -29,9 +33,28 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
     return `${min}:${sec.toString().padStart(2, '0')}`;
   };
 
+  const handleLayout = (e: LayoutChangeEvent) => {
+    setContainerWidth(e.nativeEvent.layout.width);
+  };
+
+  const handlePress = (e: any) => {
+    if (!onSeekRequested || containerWidth <= 0) return;
+    const ratio = Math.min(1, Math.max(0, e.nativeEvent.locationX / containerWidth));
+    onSeekRequested(Math.floor(ratio * durationMs));
+  };
+
   return (
     <View style={styles.container}>
-      <View style={[styles.waveformBox, { height }]}>
+      <Pressable
+        onLayout={handleLayout}
+        onPress={handlePress}
+        style={({ pressed }) => [
+          styles.waveformBox,
+          { height },
+          pressed && styles.waveformBoxPressed,
+        ]}
+        hitSlop={4}
+      >
         {SAMPLE_BARS.map((amp, idx) => {
           const isPassed = idx <= activeBarIndex;
           const isCurrent = idx === activeBarIndex;
@@ -56,12 +79,14 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 
         {/* Playhead line */}
         <View style={[styles.playheadLine, { left: `${progressRatio * 100}%` }]} />
-      </View>
+      </Pressable>
 
       {/* Time labels */}
       <View style={styles.timeRow}>
         <Text style={styles.timeLabel}>{formatMs(positionMs)}</Text>
-        <Text style={styles.timeLabel}>{formatMs(durationMs)}</Text>
+        <Text style={[styles.timeLabel, onSeekRequested && styles.timeHint]}>
+          {onSeekRequested ? '⇠ tap to seek ⇢' : formatMs(durationMs)}
+        </Text>
       </View>
     </View>
   );
@@ -83,6 +108,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     position: 'relative',
+  },
+  waveformBoxPressed: {
+    opacity: 0.6,
   },
   bar: {
     flex: 1,
@@ -110,5 +138,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+  },
+  timeHint: {
+    color: '#00E5FF',
   },
 });

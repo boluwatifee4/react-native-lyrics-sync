@@ -5,6 +5,7 @@ import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-au
 import { usePlayerStore } from '../../features/player/store/usePlayerStore';
 import { useAudioSync } from '../../features/synchronization/hooks/useAudioSync';
 import { SynchronizedLyricsView } from '../../features/synchronization/components/SynchronizedLyricsView';
+import { AudioWaveform } from '../../features/synchronization/components/AudioWaveform';
 import { TrackLibraryModal } from '../../features/player/components/TrackLibraryModal';
 import { ImportTrackModal } from '../../features/creator/components/ImportTrackModal';
 
@@ -114,6 +115,11 @@ export default function ListenerPlayerScreen() {
 
       {/* SYNCHRONIZED LYRICS DISPLAY (UI-THREAD REANIMATED) */}
       <View style={styles.lyricsContainer}>
+        <AudioWaveform
+          positionMs={currentMs}
+          durationMs={totalMs}
+          onSeekRequested={handleNativeLineSeek}
+        />
         <SynchronizedLyricsView
           lines={lyrics}
           timeMs={timeMs}

@@ -17,6 +17,7 @@
     "expo-image": "~57.0.5",
     "expo-linking": "~57.0.10",
     "expo-router": "~57.0.21",
+    "expo-sharing": "~57.0.19",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "^57.0.3",
     "expo-status-bar": "~57.0.1",
