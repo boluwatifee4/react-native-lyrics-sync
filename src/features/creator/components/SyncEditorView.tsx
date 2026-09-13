@@ -32,8 +32,9 @@ import { ImportTrackModal } from './ImportTrackModal';
 import { TrackLibraryModal } from '../../player/components/TrackLibraryModal';
 import { FineTuneScreen } from './FineTuneScreen';
 import { exportLyricsAsLrc } from '../services/lrcExporter';
+import { Colors } from '../../../constants/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// ─── Line State Enum ───────────────────────────────────────────
 type LineState = 'synced' | 'active' | 'waiting';
 
 function getLineState(
@@ -47,7 +48,6 @@ function getLineState(
   return 'waiting';
 }
 
-// ─── Flash Animation Hook ──────────────────────────────────────
 function useFlashAnim() {
   const flashOpacity = useRef(new Animated.Value(0)).current;
 
@@ -55,7 +55,7 @@ function useFlashAnim() {
     flashOpacity.setValue(1);
     Animated.timing(flashOpacity, {
       toValue: 0,
-      duration: 400,
+      duration: 350,
       useNativeDriver: true,
     }).start();
   }, [flashOpacity]);
@@ -63,8 +63,8 @@ function useFlashAnim() {
   return { flashOpacity, triggerFlash };
 }
 
-// ─── Main Component ────────────────────────────────────────────
 export const SyncEditorView: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const lyrics = usePlayerStore((s) => s.lyrics);
   const setPositionMs = usePlayerStore((s) => s.setPositionMs);
@@ -73,7 +73,6 @@ export const SyncEditorView: React.FC = () => {
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
 
   const [mode, setMode] = useState<'line' | 'word'>('line');
-  const [celebrateExpanded, setCelebrateExpanded] = useState(false);
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
 
   const audioUri = activeTrack?.audioUri || 'https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-new.mp3';
@@ -89,10 +88,10 @@ export const SyncEditorView: React.FC = () => {
   const [selectedLineIndex, setSelectedLineIndex] = useState<number>(0);
   const [activeWordIndex, setActiveWordIndex] = useState<number>(0);
 
-  // Flash animation
   const { flashOpacity, triggerFlash } = useFlashAnim();
   const listRef = useRef<FlatList>(null);
   const appliedTrackIdRef = useRef<string | undefined>(undefined);
+  const theme = Colors.dark;
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
   const findNextUnsyncedLine = (lines: LyricLine[]): number => {
@@ -105,9 +104,6 @@ export const SyncEditorView: React.FC = () => {
     return i === -1 ? line.words.length : i;
   };
 
-  // Rebuild editor state only when a different track is loaded.
-  // `lyrics` also changes whenever a timestamp is marked (editor syncs the
-  // store for playback), which must NOT reset the active line.
   useEffect(() => {
     if (appliedTrackIdRef.current === activeTrack?.id) return;
     appliedTrackIdRef.current = activeTrack?.id;
@@ -119,9 +115,6 @@ export const SyncEditorView: React.FC = () => {
   }, [activeTrack?.id, lyrics]);
 
   const currentLines = history.present;
-  // A line is "synced" once it has a start timestamp and, in word mode, once
-  // every word has been captured too. This prevents the last line from reading
-  // as complete while its words are still being tapped.
   const isLineSynced = (line: LyricLine): boolean => {
     if (mode === 'word' && line.words.length > 0) {
       return line.startMs > 0 && line.words.every((w) => w.startMs > 0);
@@ -136,7 +129,6 @@ export const SyncEditorView: React.FC = () => {
   const activeWordIdx = selectedLine ? clamp(activeWordIndex, 0, Math.max(selectedLine.words.length - 1, 0)) : 0;
   const activeWord = selectedLine?.words[activeWordIdx];
 
-  // ─── Mode Switching ────────────────────────────────────────
   const switchToWordMode = useCallback(() => {
     setMode('word');
     const li = clamp(activeLineIndex, 0, Math.max(currentLines.length - 1, 0));
@@ -150,7 +142,6 @@ export const SyncEditorView: React.FC = () => {
     setActiveLineIndex(next >= currentLines.length ? Math.max(currentLines.length - 1, 0) : next);
   }, [currentLines]);
 
-  // ─── Core Actions ──────────────────────────────────────────
   const handleLineMark = useCallback(() => {
     if (allSynced || currentLines.length === 0) return;
 
@@ -158,7 +149,6 @@ export const SyncEditorView: React.FC = () => {
     const result = markLineBoundary(history, idx, currentMs);
     let nextHistory = result.history;
 
-    // If this was the last line, auto-close its endMs
     if (idx === currentLines.length - 1) {
       nextHistory = finishLastLine(nextHistory, idx, totalMs);
     }
@@ -171,17 +161,15 @@ export const SyncEditorView: React.FC = () => {
     setActiveLineIndex(nextActive);
     setSelectedLineIndex(nextActive);
 
-    // Visual + haptic feedback
     triggerFlash();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
-    // Auto-scroll to next unsynced line
     if (next < nextHistory.present.length) {
       setTimeout(() => {
         listRef.current?.scrollToIndex({
           index: Math.min(next, currentLines.length - 1),
           animated: true,
-          viewPosition: 0.3,
+          viewPosition: 0.35,
         });
       }, 100);
     }
@@ -198,7 +186,6 @@ export const SyncEditorView: React.FC = () => {
     const result = markWordBoundary(history, li, wi, currentMs);
     let nextHistory = result.history;
 
-    // Last word of the last line closes out the whole song
     const isLastWord = wi === line.words.length - 1;
     const isLastLine = li === currentLines.length - 1;
     if (isLastWord && isLastLine) {
@@ -208,7 +195,6 @@ export const SyncEditorView: React.FC = () => {
     setHistory(nextHistory);
     usePlayerStore.setState({ lyrics: nextHistory.present });
 
-    // Visual + haptic feedback
     triggerFlash();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
@@ -216,7 +202,6 @@ export const SyncEditorView: React.FC = () => {
     if (nextWord < line.words.length) {
       setActiveWordIndex(nextWord);
     } else {
-      // This line's words are all captured — advance to the next unsynced line
       const nextLine = findNextUnsyncedLine(nextHistory.present);
       const nextLineIdx = nextLine >= nextHistory.present.length ? nextHistory.present.length - 1 : Math.max(nextLine, 0);
       setSelectedLineIndex(nextLineIdx);
@@ -228,7 +213,6 @@ export const SyncEditorView: React.FC = () => {
   const handleUndo = useCallback(async () => {
     if (history.past.length === 0) return;
 
-    // Pause first so the rewind doesn't fight the playing audio loop
     const wasPlaying = status.playing;
     if (wasPlaying) {
       player.pause();
@@ -238,21 +222,18 @@ export const SyncEditorView: React.FC = () => {
     setHistory(nextHistory);
     usePlayerStore.setState({ lyrics: nextHistory.present });
 
-    // Step the focus back to the first unsynced line/word
     const nextLine = findNextUnsyncedLine(nextHistory.present);
     const nextLineIdx = nextLine >= nextHistory.present.length ? nextHistory.present.length - 1 : Math.max(Math.min(nextLine, nextHistory.present.length - 1), 0);
     setActiveLineIndex(nextLineIdx);
     setSelectedLineIndex(nextLineIdx);
     setActiveWordIndex(findNextUnsyncedWord(nextHistory.present[nextLineIdx]));
 
-    // Rewind audio a few seconds so user can re-mark
     const rewindTarget = Math.max(0, currentMs - 3000);
     setPositionMs(rewindTarget);
     try {
       await player.seekTo(rewindTarget / 1000);
     } catch (e) {}
 
-    // Resume playback smoothly once the seek settles
     if (wasPlaying) {
       setTimeout(() => player.play(), 80);
     }
@@ -262,12 +243,12 @@ export const SyncEditorView: React.FC = () => {
 
   const handleStartOver = useCallback(() => {
     Alert.alert(
-      'Start Over?',
-      'This will clear all your timestamps. You can undo this once if you change your mind.',
+      'RESET TELEMETRY',
+      'Clear all synchronization timestamps for this track?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear All',
+          text: 'Reset All',
           style: 'destructive',
           onPress: () => {
             const nextHistory = resetAllTimestamps(history);
@@ -290,13 +271,12 @@ export const SyncEditorView: React.FC = () => {
     try {
       await saveTrackLyrics(activeTrack.id, currentLines);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('✅ Saved!', 'Your sync timestamps have been saved.');
+      Alert.alert('SAVED', 'Telemetry timestamps written to storage.');
     } catch (e: any) {
       Alert.alert('Save Failed', e.message);
     }
   }, [activeTrack, currentLines]);
 
-  // ─── Per-line delay / nudge by ms ──────────────────────────
   const handleShift = useCallback((deltaMs: number) => {
     if (currentLines.length === 0) return;
     const li = clamp(mode === 'word' ? selectedLineIndex : activeLineIndex, 0, currentLines.length - 1);
@@ -306,7 +286,6 @@ export const SyncEditorView: React.FC = () => {
     Haptics.selectionAsync().catch(() => {});
   }, [history, mode, selectedLineIndex, activeLineIndex, currentLines.length]);
 
-  // ─── Fine Tune handlers ────────────────────────────────────
   const handleNudgeLine = useCallback((lineIndex: number, deltaMs: number) => {
     const nextHistory = shiftLineTimestamp(history, lineIndex, deltaMs);
     setHistory(nextHistory);
@@ -328,7 +307,6 @@ export const SyncEditorView: React.FC = () => {
     setTimeout(() => player.play(), 60);
   }, [player, setPositionMs]);
 
-  // ─── LRC export ────────────────────────────────────────────
   const handleExportLrc = useCallback(async () => {
     if (!activeTrack) return;
     try {
@@ -339,7 +317,6 @@ export const SyncEditorView: React.FC = () => {
     }
   }, [activeTrack, currentLines]);
 
-  // ─── Transport Controls ────────────────────────────────────
   const togglePlayPause = () => {
     if (status.playing) {
       player.pause();
@@ -354,87 +331,93 @@ export const SyncEditorView: React.FC = () => {
     setPositionMs(target);
   };
 
-  const formatMs = (ms: number) => {
-    const totalSec = Math.floor(ms / 1000);
+  const formatPreciseMs = (ms: number) => {
+    const safeMs = Math.max(0, ms);
+    const totalSec = Math.floor(safeMs / 1000);
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
-    return `${min}:${sec.toString().padStart(2, '0')}`;
+    const millis = Math.floor((safeMs % 1000) / 10).toString().padStart(2, '0');
+    return `${min}:${sec.toString().padStart(2, '0')}.${millis}`;
   };
 
-  // ─── Next line/word text for the MARK button ───────────────
   const nextLineText = allSynced ? null : currentLines[activeIdx]?.text || '';
   const nextWordText = allSynced ? null : activeWord?.text || '';
   const wordModeDisabled = mode === 'word' && (!selectedLine || selectedLine.words.length === 0);
 
-  // ─── Render ────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      {/* ─── HEADER ─── */}
-      <View style={styles.header}>
+      {/* ─── TELEMETRY HEADER ─── */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
-          style={styles.trackTitleBox}
+          style={styles.trackDetails}
           onPress={() => setIsLibraryModalOpen(true)}
+          activeOpacity={0.7}
         >
+          <Text style={styles.headerLabel}>MISSION // SYNC TELEMETRY</Text>
           <Text style={styles.trackTitle} numberOfLines={1}>
-            🎵 {activeTrack?.title || 'No Track Loaded'}
-          </Text>
-          <Text style={styles.trackArtist} numberOfLines={1}>
-            {activeTrack?.artist || 'Tap to open library'}
+            {activeTrack?.title || 'No Track Selected'}
           </Text>
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
-            style={styles.headerBtn}
+            style={styles.headerIconBtn}
             onPress={() => setIsLibraryModalOpen(true)}
+            hitSlop={8}
           >
-            <Ionicons name="albums-outline" size={18} color="#FFFFFF" />
+            <Ionicons name="albums-outline" size={16} color="#A1A1AA" />
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.headerBtn, styles.importBtnHeader]}
+            style={[styles.headerIconBtn, styles.headerIconBtnAccent]}
             onPress={() => setIsImportModalOpen(true)}
+            hitSlop={8}
           >
-            <Ionicons name="add" size={18} color="#000000" />
+            <Ionicons name="add" size={18} color="#3E9BFF" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* ─── PROGRESS ─── */}
-      <View style={styles.progressBar}>
-        <Text style={styles.progressText}>
-          {allSynced
-            ? '🎉 All lines synced!'
-            : `Line ${syncedCount + 1} of ${currentLines.length}`}
-        </Text>
-        <View style={styles.progressTrack}>
-          <View
-            style={[
-              styles.progressFill,
-              { width: `${(syncedCount / Math.max(1, currentLines.length)) * 100}%` },
-            ]}
-          />
+      {/* ─── STATUS READOUT & MODE BAR ─── */}
+      <View style={styles.statusReadoutBar}>
+        <View style={styles.syncStatsGroup}>
+          <Text style={styles.syncStatsLabel}>
+            {allSynced
+              ? 'STATUS // FULLY SYNCHRONIZED'
+              : `SYNC // ${syncedCount} OF ${currentLines.length} LINES`}
+          </Text>
+          <View style={styles.syncProgressGauge}>
+            <View
+              style={[
+                styles.syncProgressFill,
+                { width: `${(syncedCount / Math.max(1, currentLines.length)) * 100}%` },
+                allSynced && { backgroundColor: '#30D158' },
+              ]}
+            />
+          </View>
+        </View>
+
+        {/* Minimal Mode Selector */}
+        <View style={styles.modeSegment}>
+          <TouchableOpacity
+            style={[styles.modeSegmentBtn, mode === 'line' && styles.modeSegmentActive]}
+            onPress={switchToLineMode}
+          >
+            <Text style={[styles.modeSegmentText, mode === 'line' && styles.modeSegmentTextActive]}>
+              LINE
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeSegmentBtn, mode === 'word' && styles.modeSegmentActive]}
+            onPress={switchToWordMode}
+          >
+            <Text style={[styles.modeSegmentText, mode === 'word' && styles.modeSegmentTextActive]}>
+              WORD
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* ─── MODE TOGGLE ─── */}
-      <View style={styles.modeRow}>
-        <TouchableOpacity
-          style={[styles.modeBtn, mode === 'line' && styles.modeBtnActive]}
-          onPress={switchToLineMode}
-        >
-          <Ionicons name="text-outline" size={14} color={mode === 'line' ? '#000000' : '#888888'} />
-          <Text style={[styles.modeBtnText, mode === 'line' && styles.modeBtnTextActive]}>Line</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeBtn, mode === 'word' && styles.modeBtnActive]}
-          onPress={switchToWordMode}
-        >
-          <Ionicons name="return-down-forward-outline" size={14} color={mode === 'word' ? '#000000' : '#888888'} />
-          <Text style={[styles.modeBtnText, mode === 'word' && styles.modeBtnTextActive]}>Word</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ─── WAVEFORM ─── */}
+      {/* ─── ACOUSTIC WAVEFORM TIMELINE ─── */}
       <AudioWaveform
         positionMs={currentMs}
         durationMs={totalMs}
@@ -444,13 +427,13 @@ export const SyncEditorView: React.FC = () => {
         }}
       />
 
-      {/* ─── GREEN FLASH OVERLAY ─── */}
+      {/* ─── FLASH OVERLAY (Subtle precision trigger) ─── */}
       <Animated.View
         pointerEvents="none"
         style={[styles.flashOverlay, { opacity: flashOpacity }]}
       />
 
-      {/* ─── LYRICS LIST ─── */}
+      {/* ─── TELEMETRY LYRIC TABLE ─── */}
       <FlatList
         ref={listRef}
         data={currentLines}
@@ -459,35 +442,39 @@ export const SyncEditorView: React.FC = () => {
         onScrollToIndexFailed={() => {}}
         renderItem={({ item, index }) => {
           const state = getLineState(index, activeIdx, item, isLineSynced);
+          const isCurrentActive = index === activeIdx;
 
           return (
             <TouchableOpacity
               style={[
-                styles.lineRow,
-                state === 'active' && styles.lineRowActive,
-                state === 'synced' && styles.lineRowSynced,
+                styles.tableRow,
+                state === 'active' && styles.tableRowActive,
+                state === 'synced' && styles.tableRowSynced,
               ]}
               disabled={mode === 'line'}
               onPress={() => {
                 setSelectedLineIndex(index);
                 setActiveWordIndex(findNextUnsyncedWord(currentLines[index]));
               }}
+              activeOpacity={0.7}
             >
-              {/* State icon */}
-              <View style={styles.lineIcon}>
-                {state === 'synced' && (
-                  <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                )}
-                {state === 'active' && (
-                  <View style={styles.activeDot} />
-                )}
-                {state === 'waiting' && (
-                  <View style={styles.waitingDot} />
-                )}
+              {/* Telemetry status dot & index */}
+              <View style={styles.rowTelemetryCol}>
+                <Text style={[styles.rowLineNum, isCurrentActive && styles.rowLineNumActive]}>
+                  {(index + 1).toString().padStart(2, '0')}
+                </Text>
+                <View
+                  style={[
+                    styles.rowDot,
+                    state === 'synced' && styles.rowDotSynced,
+                    state === 'active' && styles.rowDotActive,
+                    state === 'waiting' && styles.rowDotWaiting,
+                  ]}
+                />
               </View>
 
-              {/* Line text */}
-              <View style={styles.lineTextContainer}>
+              {/* Line text & timecode readout */}
+              <View style={styles.rowTextCol}>
                 <Text
                   style={[
                     styles.lineText,
@@ -500,8 +487,8 @@ export const SyncEditorView: React.FC = () => {
                   {item.text}
                 </Text>
                 {state === 'synced' && item.startMs > 0 && (
-                  <Text style={styles.lineTimestamp}>
-                    {formatMs(item.startMs)} → {formatMs(item.endMs)}
+                  <Text style={styles.lineTimecode}>
+                    {formatPreciseMs(item.startMs)} ➔ {formatPreciseMs(item.endMs)}
                   </Text>
                 )}
               </View>
@@ -510,26 +497,27 @@ export const SyncEditorView: React.FC = () => {
         }}
       />
 
-      {/* ─── FOOTER CONTROLS ─── */}
-      <View style={styles.footer}>
-        {/* Word chips (word mode only) */}
+      {/* ─── COCKPIT ACTUATION & TRANSPORT FOOTER ─── */}
+      <View style={styles.cockpitFooter}>
+        {/* Word Telemetry Sequencer (Word Mode only) */}
         {mode === 'word' && selectedLine && selectedLine.words.length > 0 && (
-          <View style={styles.wordChipArea}>
-            <Text style={styles.wordChipTitle} numberOfLines={1}>
-              Line {activeIdx + 1} — tap each word as it's sung
+          <View style={styles.wordRibbonContainer}>
+            <Text style={styles.wordRibbonLabel}>
+              WORD SEQUENCER // LINE {(activeIdx + 1).toString().padStart(2, '0')}
             </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.wordChips}
+              contentContainerStyle={styles.wordRibbon}
             >
               {selectedLine.words.map((word, wi) => {
                 const chipState =
                   wi < activeWordIdx || (wi === activeWordIdx && word.startMs > 0)
                     ? 'synced'
                     : wi === activeWordIdx
-                      ? 'active'
-                      : 'waiting';
+                    ? 'active'
+                    : 'waiting';
+
                 return (
                   <TouchableOpacity
                     key={word.id}
@@ -556,169 +544,133 @@ export const SyncEditorView: React.FC = () => {
           </View>
         )}
 
-        {/* Transport row */}
-        <View style={styles.transportRow}>
-          <TouchableOpacity style={styles.transportBtn} onPress={() => handleSeek(-5000)}>
-            <Ionicons name="play-back" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
+        {/* Secondary controls strip: Transport & Steppers */}
+        <View style={styles.controlStrip}>
+          <View style={styles.transportGroup}>
+            <TouchableOpacity style={styles.transportBtn} onPress={() => handleSeek(-5000)} hitSlop={8}>
+              <Ionicons name="play-back" size={16} color="#71717A" />
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.playPauseBtn} onPress={togglePlayPause}>
-            <Ionicons
-              name={status.playing ? 'pause' : 'play'}
-              size={24}
-              color="#000000"
-            />
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.playBtn} onPress={togglePlayPause} hitSlop={6}>
+              <Ionicons
+                name={status.playing ? 'pause' : 'play'}
+                size={16}
+                color={theme.accent}
+                style={{ marginLeft: status.playing ? 0 : 2 }}
+              />
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.transportBtn} onPress={() => handleSeek(5000)}>
-            <Ionicons name="play-forward" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.transportBtn} onPress={() => handleSeek(5000)} hitSlop={8}>
+              <Ionicons name="play-forward" size={16} color="#71717A" />
+            </TouchableOpacity>
+          </View>
 
-          <View style={styles.transportSpacer} />
+          {/* Stepper adjustment controls */}
+          <View style={styles.stepperGroup}>
+            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleShift(-100)}>
+              <Text style={styles.stepperText}>-100</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleShift(-10)}>
+              <Text style={styles.stepperText}>-10</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleShift(10)}>
+              <Text style={styles.stepperText}>+10</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleShift(100)}>
+              <Text style={styles.stepperText}>+100</Text>
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={[styles.undoBtn, history.past.length === 0 && styles.btnDisabled]}
             disabled={history.past.length === 0}
             onPress={handleUndo}
+            hitSlop={6}
           >
-            <Ionicons name="arrow-undo" size={18} color="#FFFFFF" />
-            <Text style={styles.undoBtnText}>Undo</Text>
+            <Ionicons name="arrow-undo" size={14} color="#A1A1AA" />
+            <Text style={styles.undoText}>UNDO</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Per-line delay / nudge in ms */}
-        {currentLines.length > 0 && (
-          <View style={styles.delayRow}>
-            <Text style={styles.delayLabel} numberOfLines={1}>
-              Delay Line {activeIdx + 1}
-            </Text>
-            <View style={styles.delayBtns}>
-              <TouchableOpacity style={styles.delayBtn} onPress={() => handleShift(-100)}>
-                <Text style={styles.delayBtnText}>-100</Text>
+        {/* ─── PRIMARY SYNC ACTUATOR BUTTON ─── */}
+        {allSynced ? (
+          <View style={styles.completeCard}>
+            <View style={styles.completeHeader}>
+              <Text style={styles.completeTitle}>ALL LINES SYNCHRONIZED</Text>
+              <Text style={styles.completeSub}>Ready for verification and storage</Text>
+            </View>
+            <View style={styles.completeActions}>
+              <TouchableOpacity style={styles.completeBtn} onPress={handleSave}>
+                <Ionicons name="save-outline" size={14} color="#000000" />
+                <Text style={styles.completeBtnText}>SAVE SYNC</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.delayBtn} onPress={() => handleShift(-10)}>
-                <Text style={styles.delayBtnText}>-10</Text>
+              <TouchableOpacity style={styles.completeSecondaryBtn} onPress={() => setIsFineTuneOpen(true)}>
+                <Text style={styles.completeSecondaryText}>FINE TUNE</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.delayBtn} onPress={() => handleShift(10)}>
-                <Text style={styles.delayBtnText}>+10</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.delayBtn} onPress={() => handleShift(100)}>
-                <Text style={styles.delayBtnText}>+100</Text>
+              <TouchableOpacity style={styles.completeSecondaryBtn} onPress={handleExportLrc}>
+                <Text style={styles.completeSecondaryText}>EXPORT .LRC</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        )}
-
-        {/* ─── THE BIG MARK BUTTON ─── */}
-        {allSynced ? celebrateExpanded ? (
-          <View style={styles.celebrationBox}>
-            <View style={styles.celebrationBoxHeader}>
-              <Text style={styles.celebrationEmoji}>🎉</Text>
-              <TouchableOpacity
-                style={styles.collapseBtn}
-                onPress={() => setCelebrateExpanded(false)}
-              >
-                <Ionicons name="chevron-up" size={18} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.celebrationTitle}>All Done!</Text>
-            <Text style={styles.celebrationSub}>
-              All {currentLines.length} lines are synced. Save your work or fine-tune.
-            </Text>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Ionicons name="checkmark-circle" size={20} color="#000000" />
-              <Text style={styles.saveBtnText}>Save Sync</Text>
-            </TouchableOpacity>
-            <View style={styles.celebrationActions}>
-              <TouchableOpacity style={styles.celebrationActionBtn} onPress={() => setIsFineTuneOpen(true)}>
-                <Ionicons name="options-outline" size={16} color="#00E5FF" />
-                <Text style={styles.celebrationActionText}>Fine Tune</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.celebrationActionBtn} onPress={handleExportLrc}>
-                <Ionicons name="download-outline" size={16} color="#00E5FF" />
-                <Text style={styles.celebrationActionText}>Export .lrc</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.celebrationBar}>
-            <Text style={styles.celebrationBarText} numberOfLines={1}>
-              🎉 All {currentLines.length} lines synced
-            </Text>
-            <TouchableOpacity
-              style={styles.celebrationSaveBtn}
-              onPress={() => setIsFineTuneOpen(true)}
-            >
-              <Ionicons name="options-outline" size={16} color="#00E5FF" />
-              <Text style={[styles.celebrationSaveText, { color: '#00E5FF' }]}>Fine Tune</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.celebrationSaveBtn} onPress={handleSave}>
-              <Ionicons name="checkmark-circle" size={16} color="#000000" />
-              <Text style={styles.celebrationSaveText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.collapseBarBtn}
-              onPress={() => setCelebrateExpanded(true)}
-            >
-              <Ionicons name="chevron-down" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
           </View>
         ) : mode === 'word' && wordModeDisabled ? (
-          <TouchableOpacity
-            style={[styles.markBtn, styles.markBtnDisabled]}
-            disabled
-            activeOpacity={0.7}
-          >
-            <Text style={styles.markLabel}>NO WORDS TO MARK</Text>
-            <Text style={styles.markLineText} numberOfLines={2}>
-              "{nextLineText}" has no word-level timestamps. Use Line mode or re-import lyrics.
-            </Text>
-          </TouchableOpacity>
+          <View style={[styles.markActuator, styles.markActuatorDisabled]}>
+            <Text style={styles.actuatorDisabledLabel}>NO WORD TIMESTAMPS DETECTED</Text>
+            <Text style={styles.actuatorDisabledSub}>Switch to Line Mode or re-import</Text>
+          </View>
         ) : mode === 'word' ? (
           <TouchableOpacity
-            style={styles.markBtn}
+            style={styles.markActuator}
             onPress={handleWordMark}
             activeOpacity={0.7}
           >
-            <Text style={styles.markLabel}>👇 TAP WHEN YOU HEAR THIS WORD</Text>
-            <Text style={styles.markLineText} numberOfLines={2}>
-              "{nextWordText}"
+            <View style={styles.actuatorTelemetryRow}>
+              <Text style={styles.actuatorCue}>TAP TO CAPTURE WORD</Text>
+              {selectedLine && (
+                <Text style={styles.actuatorIndex}>
+                  W {(activeWordIdx + 1).toString().padStart(2, '0')}/
+                  {(selectedLine.words.length).toString().padStart(2, '0')}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.actuatorTargetText} numberOfLines={1}>
+              {nextWordText}
             </Text>
-            {selectedLine && (
-              <Text style={styles.markWordProgress}>
-                Word {activeWordIdx + 1} of {selectedLine.words.length} · Line {activeIdx + 1}
-              </Text>
-            )}
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={styles.markBtn}
+            style={styles.markActuator}
             onPress={handleLineMark}
             activeOpacity={0.7}
           >
-            <Text style={styles.markLabel}>👇 TAP WHEN YOU HEAR THIS LINE</Text>
-            <Text style={styles.markLineText} numberOfLines={2}>
-              "{nextLineText}"
+            <View style={styles.actuatorTelemetryRow}>
+              <Text style={styles.actuatorCue}>TAP TO CAPTURE LINE</Text>
+              <Text style={styles.actuatorIndex}>
+                L {(activeIdx + 1).toString().padStart(2, '0')}/
+                {(currentLines.length).toString().padStart(2, '0')}
+              </Text>
+            </View>
+            <Text style={styles.actuatorTargetText} numberOfLines={2}>
+              {nextLineText}
             </Text>
           </TouchableOpacity>
         )}
 
-        {/* Bottom actions row */}
-        <View style={styles.bottomRow}>
-          <TouchableOpacity
-            style={styles.startOverBtn}
-            onPress={handleStartOver}
-          >
-            <Ionicons name="refresh" size={16} color="#EF4444" />
-            <Text style={styles.startOverText}>Start Over</Text>
+        {/* Utility bottom bar */}
+        <View style={styles.utilityBar}>
+          <TouchableOpacity style={styles.utilityBtn} onPress={handleStartOver} hitSlop={6}>
+            <Text style={styles.utilityResetText}>RESET ALL</Text>
           </TouchableOpacity>
 
-          {!allSynced && (
-            <TouchableOpacity style={styles.saveSmallBtn} onPress={handleSave}>
-              <Ionicons name="save-outline" size={16} color="#10B981" />
-              <Text style={styles.saveSmallText}>Save</Text>
+          <View style={styles.utilityRightGroup}>
+            <TouchableOpacity style={styles.utilityBtn} onPress={() => setIsFineTuneOpen(true)} hitSlop={6}>
+              <Text style={styles.utilityText}>FINE TUNE</Text>
             </TouchableOpacity>
-          )}
+            {!allSynced && (
+              <TouchableOpacity style={styles.utilityBtn} onPress={handleSave} hitSlop={6}>
+                <Text style={styles.utilitySaveText}>SAVE DRAFT</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
 
@@ -747,495 +699,426 @@ export const SyncEditorView: React.FC = () => {
   );
 };
 
-// ─── Styles ────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0C10',
+    backgroundColor: '#000000',
   },
-
-  // Header
   header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 10,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1D27',
+    borderBottomColor: '#18181B',
   },
-  trackTitleBox: {
+  trackDetails: {
     flex: 1,
-    marginRight: 12,
+  },
+  headerLabel: {
+    color: '#52525B',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    marginBottom: 2,
   },
   trackTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  trackArtist: {
-    color: '#888888',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 2,
+    color: '#F4F4F5',
+    fontSize: 15,
+    fontWeight: '500',
   },
   headerActions: {
     flexDirection: 'row',
     gap: 8,
   },
-  headerBtn: {
-    backgroundColor: '#1E2430',
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+  headerIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 2,
+    backgroundColor: '#08080A',
+    borderWidth: 1,
+    borderColor: '#18181B',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  importBtnHeader: {
-    backgroundColor: '#00E5FF',
+  headerIconBtnAccent: {
+    borderColor: '#3E9BFF',
+    backgroundColor: 'transparent',
   },
-
-  // Progress bar
-  progressBar: {
-    paddingHorizontal: 16,
+  statusReadoutBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
     paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#18181B',
+    backgroundColor: '#050507',
   },
-  progressText: {
-    color: '#AAAAAA',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 6,
+  syncStatsGroup: {
+    flex: 1,
+    marginRight: 16,
   },
-  progressTrack: {
-    height: 4,
-    backgroundColor: '#1E2430',
-    borderRadius: 2,
+  syncStatsLabel: {
+    color: '#71717A',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  syncProgressGauge: {
+    height: 2,
+    backgroundColor: '#18181B',
+    borderRadius: 1,
     overflow: 'hidden',
   },
-  progressFill: {
+  syncProgressFill: {
     height: '100%',
-    backgroundColor: '#10B981',
+    backgroundColor: '#3E9BFF',
+    borderRadius: 1,
+  },
+  modeSegment: {
+    flexDirection: 'row',
+    backgroundColor: '#0A0A0E',
+    borderWidth: 1,
+    borderColor: '#18181B',
     borderRadius: 2,
   },
-
-  // Mode toggle
-  modeRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 8,
+  modeSegmentBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  modeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E2430',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 6,
-    justifyContent: 'center',
+  modeSegmentActive: {
+    backgroundColor: '#181822',
   },
-  modeBtnActive: {
-    backgroundColor: '#00E5FF',
+  modeSegmentText: {
+    color: '#52525B',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
-  modeBtnText: {
-    color: '#888888',
-    fontSize: 12,
-    fontWeight: '800',
+  modeSegmentTextActive: {
+    color: '#3E9BFF',
   },
-  modeBtnTextActive: {
-    color: '#000000',
-  },
-
-  // Flash overlay
   flashOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(62, 155, 255, 0.12)',
     zIndex: 10,
   },
-
-  // Lyrics list
   list: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
-  lineRow: {
+  tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 4,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#101014',
   },
-  lineRowActive: {
-    backgroundColor: '#141C2E',
-    borderColor: '#00E5FF',
-    borderWidth: 1.5,
+  tableRowActive: {
+    backgroundColor: '#08080E',
   },
-  lineRowSynced: {
-    backgroundColor: '#0D1A14',
-    borderColor: '#10B98130',
-  },
-  lineIcon: {
-    width: 28,
+  tableRowSynced: {},
+  rowTelemetryCol: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 10,
+    width: 38,
+    gap: 6,
   },
-  activeDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#00E5FF',
+  rowLineNum: {
+    color: '#3F3F46',
+    fontSize: 10,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
-  waitingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#333A4A',
+  rowLineNumActive: {
+    color: '#3E9BFF',
   },
-  lineTextContainer: {
+  rowDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  rowDotSynced: {
+    backgroundColor: '#30D158',
+  },
+  rowDotActive: {
+    backgroundColor: '#3E9BFF',
+  },
+  rowDotWaiting: {
+    backgroundColor: '#5A6270',
+  },
+  rowTextCol: {
     flex: 1,
   },
   lineText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#888888',
+    fontSize: 14,
+    fontWeight: '400',
+    lineHeight: 20,
   },
   lineTextActive: {
     color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 16,
+    fontWeight: '500',
   },
   lineTextSynced: {
-    color: '#10B981',
-    fontWeight: '600',
+    color: '#A1A1AA',
   },
   lineTextWaiting: {
-    color: '#555555',
+    color: '#8B93A3',
   },
-  lineTimestamp: {
-    color: '#10B98180',
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 3,
+  lineTimecode: {
+    color: '#52525B',
+    fontSize: 10,
+    fontWeight: '400',
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
-
-  // Word chips (word mode)
-  wordChipArea: {
-    marginBottom: 10,
+  cockpitFooter: {
+    backgroundColor: '#000000',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#18181B',
   },
-  wordChipTitle: {
-    color: '#888888',
-    fontSize: 11,
+  wordRibbonContainer: {
+    marginBottom: 8,
+  },
+  wordRibbonLabel: {
+    color: '#52525B',
+    fontSize: 8,
     fontWeight: '700',
-    marginBottom: 6,
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
-  wordChips: {
-    gap: 8,
-    paddingRight: 16,
+  wordRibbon: {
+    gap: 6,
+    paddingRight: 20,
   },
   wordChip: {
-    backgroundColor: '#1E2430',
+    backgroundColor: '#08080A',
     borderWidth: 1,
-    borderColor: '#2A3140',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderColor: '#18181B',
+    borderRadius: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   wordChipActive: {
-    backgroundColor: '#00E5FF',
-    borderColor: '#00E5FF',
+    borderColor: '#3E9BFF',
+    backgroundColor: '#0A0A12',
   },
   wordChipSynced: {
-    backgroundColor: '#0D1A14',
-    borderColor: '#10B98140',
+    borderColor: '#18181B',
   },
   wordChipText: {
-    color: '#888888',
-    fontSize: 13,
-    fontWeight: '700',
+    color: '#52525B',
+    fontSize: 11,
+    fontWeight: '500',
   },
   wordChipTextActive: {
-    color: '#000000',
+    color: '#3E9BFF',
+    fontWeight: '600',
   },
   wordChipTextSynced: {
-    color: '#10B981',
+    color: '#30D158',
   },
-
-  // Footer
-  footer: {
-    backgroundColor: '#12151E',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#222834',
-  },
-
-  // Transport
-  transportRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  transportBtn: {
-    padding: 8,
-  },
-  playPauseBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#00E5FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 8,
-  },
-  transportSpacer: {
-    flex: 1,
-  },
-  delayRow: {
+  controlStrip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  delayLabel: {
-    color: '#AAAAAA',
-    fontSize: 12,
-    fontWeight: '700',
-    flex: 1,
-  },
-  delayBtns: {
+  transportGroup: {
     flexDirection: 'row',
-    gap: 6,
+    alignItems: 'center',
+    gap: 8,
   },
-  delayBtn: {
-    backgroundColor: '#1E2430',
+  transportBtn: {
+    padding: 6,
+  },
+  playBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#08080A',
     borderWidth: 1,
-    borderColor: '#2A3140',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderColor: '#27272A',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  delayBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
+  stepperGroup: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  stepperBtn: {
+    backgroundColor: '#08080A',
+    borderWidth: 1,
+    borderColor: '#18181B',
+    borderRadius: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  stepperText: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
   undoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E2430',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
+    gap: 4,
+    padding: 6,
   },
-  undoBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
+  undoText: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
   btnDisabled: {
     opacity: 0.3,
   },
-
-  // Mark button
-  markBtn: {
-    backgroundColor: '#00E5FF',
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    marginBottom: 12,
-    shadowColor: '#00E5FF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  markLabel: {
-    color: '#000000',
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  markLineText: {
-    color: '#00000099',
-    fontSize: 17,
-    fontWeight: '700',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  markWordProgress: {
-    color: '#00000066',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 8,
-  },
-  markBtnDisabled: {
-    backgroundColor: '#3A4356',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-
-  // Celebration
-  celebrationBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0D1A14',
+  markActuator: {
+    backgroundColor: '#0A0A10',
     borderWidth: 1,
-    borderColor: '#10B98140',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-    gap: 10,
-  },
-  celebrationBarText: {
-    color: '#10B981',
-    fontSize: 13,
-    fontWeight: '800',
-    flex: 1,
-  },
-  celebrationSaveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#10B981',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 6,
-  },
-  celebrationSaveText: {
-    color: '#000000',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  celebrationBoxHeader: {
-    flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  collapseBtn: {
-    position: 'absolute',
-    right: 0,
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: '#232B3A',
-    borderWidth: 1,
-    borderColor: '#3A4356',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  collapseBarBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: '#232B3A',
-    borderWidth: 1,
-    borderColor: '#3A4356',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  celebrationBox: {
-    backgroundColor: '#0D1A14',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#10B98140',
-  },
-  celebrationEmoji: {
-    fontSize: 36,
+    borderColor: '#3E9BFF',
+    borderRadius: 2,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 8,
   },
-  celebrationTitle: {
-    color: '#10B981',
-    fontSize: 22,
-    fontWeight: '900',
-    marginBottom: 6,
-  },
-  celebrationSub: {
-    color: '#888888',
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  saveBtn: {
+  actuatorTelemetryRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#10B981',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
+    marginBottom: 4,
+  },
+  actuatorCue: {
+    color: '#3E9BFF',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  actuatorIndex: {
+    color: '#52525B',
+    fontSize: 10,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  actuatorTargetText: {
+    color: '#F4F4F5',
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  markActuatorDisabled: {
+    borderColor: '#18181B',
+    backgroundColor: '#08080A',
+  },
+  actuatorDisabledLabel: {
+    color: '#52525B',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  actuatorDisabledSub: {
+    color: '#3F3F46',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  completeCard: {
+    backgroundColor: '#08080A',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 2,
+    padding: 14,
+    marginBottom: 8,
+  },
+  completeHeader: {
+    marginBottom: 10,
+  },
+  completeTitle: {
+    color: '#30D158',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  completeSub: {
+    color: '#71717A',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  completeActions: {
+    flexDirection: 'row',
     gap: 8,
   },
-  saveBtnText: {
-    color: '#000000',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  celebrationActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-  },
-  celebrationActionBtn: {
+  completeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#12151E',
-    borderWidth: 1,
-    borderColor: '#00E5FF40',
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    backgroundColor: '#30D158',
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    gap: 6,
+    borderRadius: 2,
+    gap: 4,
   },
-  celebrationActionText: {
-    color: '#00E5FF',
-    fontSize: 12,
-    fontWeight: '800',
+  completeBtnText: {
+    color: '#000000',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
   },
-
-  // Bottom row
-  bottomRow: {
+  completeSecondaryBtn: {
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeSecondaryText: {
+    color: '#F4F4F5',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+  },
+  utilityBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  startOverBtn: {
+  utilityBtn: {
+    paddingVertical: 4,
+  },
+  utilityResetText: {
+    color: '#FF453A',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+  },
+  utilityRightGroup: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    gap: 6,
+    gap: 14,
   },
-  startOverText: {
-    color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '700',
+  utilityText: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
-  saveSmallBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    gap: 6,
-  },
-  saveSmallText: {
-    color: '#10B981',
-    fontSize: 13,
-    fontWeight: '700',
+  utilitySaveText: {
+    color: '#30D158',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
 });

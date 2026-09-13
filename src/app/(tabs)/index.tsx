@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { usePlayerStore } from '../../features/player/store/usePlayerStore';
@@ -8,8 +9,10 @@ import { SynchronizedLyricsView } from '../../features/synchronization/component
 import { AudioWaveform } from '../../features/synchronization/components/AudioWaveform';
 import { TrackLibraryModal } from '../../features/player/components/TrackLibraryModal';
 import { ImportTrackModal } from '../../features/creator/components/ImportTrackModal';
+import { Colors } from '../../constants/theme';
 
 export default function ListenerPlayerScreen() {
+  const insets = useSafeAreaInsets();
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const lyrics = usePlayerStore((s) => s.lyrics);
   const setPositionMs = usePlayerStore((s) => s.setPositionMs);
@@ -24,6 +27,7 @@ export default function ListenerPlayerScreen() {
   const status = useAudioPlayerStatus(player);
 
   const { timeMs } = useAudioSync();
+  const theme = Colors.dark;
 
   // Enable audio in silent mode on iOS
   useEffect(() => {
@@ -64,7 +68,7 @@ export default function ListenerPlayerScreen() {
   };
 
   const formatMs = (ms: number) => {
-    const totalSec = Math.floor(ms / 1000);
+    const totalSec = Math.floor(Math.max(0, ms) / 1000);
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
     return `${min}:${sec.toString().padStart(2, '0')}`;
@@ -73,9 +77,11 @@ export default function ListenerPlayerScreen() {
   if (!activeTrack) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No track selected</Text>
-        <TouchableOpacity style={styles.emptyBtn} onPress={() => setIsLibraryOpen(true)}>
-          <Text style={styles.emptyBtnText}>Open Library</Text>
+        <Text style={styles.emptyLabel}>NO ACTIVE TRACK</Text>
+        <Text style={styles.emptySub}>Select a track from the library to begin playback</Text>
+        <TouchableOpacity style={styles.primaryActionBtn} onPress={() => setIsLibraryOpen(true)}>
+          <Ionicons name="folder-open-outline" size={16} color="#000000" />
+          <Text style={styles.primaryActionText}>Open Track Library</Text>
         </TouchableOpacity>
         <TrackLibraryModal visible={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
       </View>
@@ -84,11 +90,12 @@ export default function ListenerPlayerScreen() {
 
   const currentMs = Math.floor((status.currentTime || 0) * 1000);
   const totalMs = Math.floor((status.duration || 0) * 1000) || activeTrack.durationMs;
+  const progressRatio = totalMs > 0 ? Math.min(1, Math.max(0, currentMs / totalMs)) : 0;
 
   return (
     <View style={styles.container}>
-      {/* HEADER ALBUM & TRACK INFO WITH LIBRARY BUTTON */}
-      <View style={styles.trackHeader}>
+      {/* ─── TRACK TELEMETRY HEADER ─── */}
+      <View style={[styles.trackHeader, { paddingTop: Math.max(insets.top, 14) }]}>
         <Image
           source={{ uri: activeTrack.coverUri || 'https://picsum.photos/400/400' }}
           style={styles.coverArt}
@@ -96,30 +103,38 @@ export default function ListenerPlayerScreen() {
         <TouchableOpacity
           style={styles.trackDetails}
           onPress={() => setIsLibraryOpen(true)}
+          activeOpacity={0.7}
         >
           <Text style={styles.trackTitle} numberOfLines={1}>
             {activeTrack.title}
           </Text>
-          <Text style={styles.artistName}>
-            {activeTrack.artist} • <Text style={styles.libraryLink}>Switch Song ▾</Text>
-          </Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.artistName} numberOfLines={1}>
+              {activeTrack.artist}
+            </Text>
+            <Text style={styles.metaDot}>•</Text>
+            <Text style={styles.libraryLink}>LIBRARY ▾</Text>
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.headerLibraryBtn}
+          style={styles.headerActionBtn}
           onPress={() => setIsLibraryOpen(true)}
+          hitSlop={8}
         >
-          <Ionicons name="albums-outline" size={20} color="#00E5FF" />
+          <Ionicons name="albums-outline" size={18} color="#A1A1AA" />
         </TouchableOpacity>
       </View>
 
-      {/* SYNCHRONIZED LYRICS DISPLAY (UI-THREAD REANIMATED) */}
+      {/* ─── ACOUSTIC TIMELINE INSTRUMENT ─── */}
+      <AudioWaveform
+        positionMs={currentMs}
+        durationMs={totalMs}
+        onSeekRequested={handleNativeLineSeek}
+      />
+
+      {/* ─── SYNCHRONIZED LYRICS ATMOSPHERE ─── */}
       <View style={styles.lyricsContainer}>
-        <AudioWaveform
-          positionMs={currentMs}
-          durationMs={totalMs}
-          onSeekRequested={handleNativeLineSeek}
-        />
         <SynchronizedLyricsView
           lines={lyrics}
           timeMs={timeMs}
@@ -127,50 +142,56 @@ export default function ListenerPlayerScreen() {
         />
       </View>
 
-      {/* AUDIO PLAYER CONTROLS FOOTER */}
+      {/* ─── INSTRUMENTATION TRANSPORT FOOTER ─── */}
       <View style={styles.playerFooter}>
+        {/* Progress gauge */}
         <View style={styles.progressRow}>
           <Text style={styles.timeText}>{formatMs(currentMs)}</Text>
           <View style={styles.progressBarBackground}>
             <View
               style={[
                 styles.progressBarFill,
-                { width: `${(currentMs / (totalMs || 1)) * 100}%` },
+                { width: `${progressRatio * 100}%` },
               ]}
             />
           </View>
           <Text style={styles.timeText}>{formatMs(totalMs)}</Text>
         </View>
 
+        {/* Transport buttons */}
         <View style={styles.controlsRow}>
           <TouchableOpacity
             style={styles.controlBtn}
             onPress={() => handleSeekOffset(-5000)}
+            hitSlop={12}
           >
-            <Ionicons name="play-back" size={28} color="#FFFFFF" />
+            <Ionicons name="play-back" size={20} color="#71717A" />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.playPauseBtn}
             onPress={togglePlayPause}
+            activeOpacity={0.8}
           >
             <Ionicons
               name={status.playing ? 'pause' : 'play'}
-              size={36}
-              color="#000000"
+              size={22}
+              color={theme.accent}
+              style={{ marginLeft: status.playing ? 0 : 2 }}
             />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.controlBtn}
             onPress={() => handleSeekOffset(5000)}
+            hitSlop={12}
           >
-            <Ionicons name="play-forward" size={28} color="#FFFFFF" />
+            <Ionicons name="play-forward" size={20} color="#71717A" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* MODALS */}
+      {/* ─── MODALS ─── */}
       <TrackLibraryModal
         visible={isLibraryOpen}
         onClose={() => setIsLibraryOpen(false)}
@@ -188,66 +209,91 @@ export default function ListenerPlayerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F1117',
+    backgroundColor: '#000000',
   },
   emptyContainer: {
     flex: 1,
-    backgroundColor: '#0F1117',
+    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 32,
   },
-  emptyText: {
-    color: '#888888',
-    fontSize: 16,
-    marginBottom: 16,
+  emptyLabel: {
+    color: '#52525B',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    marginBottom: 8,
   },
-  emptyBtn: {
-    backgroundColor: '#00E5FF',
+  emptySub: {
+    color: '#A1A1AA',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  primaryActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F4F4F5',
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 2,
+    gap: 8,
   },
-  emptyBtnText: {
+  primaryActionText: {
     color: '#000000',
-    fontWeight: '800',
+    fontWeight: '600',
+    fontSize: 13,
+    letterSpacing: 0.4,
   },
   trackHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1D27',
+    borderBottomColor: '#18181B',
   },
   coverArt: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 2,
     marginRight: 14,
+    backgroundColor: '#18181B',
   },
   trackDetails: {
     flex: 1,
   },
   trackTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
+    color: '#F4F4F5',
+    fontSize: 16,
+    fontWeight: '500',
+    letterSpacing: -0.1,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 6,
   },
   artistName: {
-    color: '#888888',
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 2,
+    color: '#A1A1AA',
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  metaDot: {
+    color: '#3F3F46',
+    fontSize: 10,
   },
   libraryLink: {
-    color: '#00E5FF',
+    color: '#3E9BFF',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
-  headerLibraryBtn: {
-    backgroundColor: '#1E2430',
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+  headerActionBtn: {
+    padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -255,12 +301,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   playerFooter: {
-    backgroundColor: '#12151E',
+    backgroundColor: '#000000',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 24,
     borderTopWidth: 1,
-    borderTopColor: '#222834',
+    borderTopColor: '#18181B',
   },
   progressRow: {
     flexDirection: 'row',
@@ -268,39 +314,42 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   timeText: {
-    color: '#888888',
-    fontSize: 12,
-    fontWeight: '600',
-    width: 40,
+    color: '#71717A',
+    fontSize: 11,
+    fontWeight: '500',
+    width: 44,
     textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
   progressBarBackground: {
     flex: 1,
-    height: 6,
-    backgroundColor: '#262C3A',
-    borderRadius: 3,
-    marginHorizontal: 10,
+    height: 2,
+    backgroundColor: '#18181B',
+    borderRadius: 1,
+    marginHorizontal: 8,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#00E5FF',
-    borderRadius: 3,
+    backgroundColor: '#3E9BFF',
+    borderRadius: 1,
   },
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 32,
+    gap: 40,
   },
   controlBtn: {
     padding: 8,
   },
   playPauseBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#00E5FF',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#08080A',
+    borderWidth: 1,
+    borderColor: '#27272A',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -6,10 +6,11 @@ import {
   TouchableOpacity,
   FlatList,
   Modal,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LyricLine } from '../../../domain/lyrics';
+import { Colors } from '../../../constants/theme';
 
 interface FineTuneScreenProps {
   visible: boolean;
@@ -23,33 +24,24 @@ interface FineTuneScreenProps {
   onNudgeWord: (lineIndex: number, wordIndex: number, deltaMs: number) => void;
 }
 
-const formatMs = (ms: number) => {
-  const totalSec = Math.floor(Math.max(0, ms) / 1000);
+const formatPreciseMs = (ms: number) => {
+  const safeMs = Math.max(0, ms);
+  const totalSec = Math.floor(safeMs / 1000);
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
-  return `${min}:${sec.toString().padStart(2, '0')}`;
+  const millis = Math.floor((safeMs % 1000) / 10).toString().padStart(2, '0');
+  return `${min}:${sec.toString().padStart(2, '0')}.${millis}`;
 };
 
-const NudgeButton: React.FC<{ value: number; color?: string; onPress: () => void }> = ({
-  value,
-  color,
-  onPress,
-}) => (
+const StepperBtn: React.FC<{ value: number; onPress: () => void }> = ({ value, onPress }) => (
   <TouchableOpacity
-    style={[styles.nudgeBtn, color ? { backgroundColor: color } : null]}
+    style={styles.stepperBtn}
     onPress={onPress}
+    hitSlop={4}
+    activeOpacity={0.6}
   >
-    <Text style={styles.nudgeBtnText}>{value > 0 ? `+${value}` : value}</Text>
+    <Text style={styles.stepperBtnText}>{value > 0 ? `+${value}` : `${value}`}</Text>
   </TouchableOpacity>
-);
-
-const NudgeGroup: React.FC<{ onNudge: (deltaMs: number) => void }> = ({ onNudge }) => (
-  <View style={styles.nudgeGroup}>
-    <NudgeButton value={-100} color="#232B3A" onPress={() => onNudge(-100)} />
-    <NudgeButton value={-10} color="#232B3A" onPress={() => onNudge(-10)} />
-    <NudgeButton value={10} color="#0D3B3F" onPress={() => onNudge(10)} />
-    <NudgeButton value={100} color="#0D3B3F" onPress={() => onNudge(100)} />
-  </View>
 );
 
 export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
@@ -63,75 +55,114 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
   onNudgeLine,
   onNudgeWord,
 }) => {
-  const [expandedLine, setExpandedLine] = useState<number | null>(null);
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const theme = Colors.dark;
 
-  const renderLine = ({ item, index }: { item: LyricLine; index: number }) => {
-    const expanded = expandedLine === index;
+  const renderItem = ({ item, index }: { item: LyricLine; index: number }) => {
+    const isExpanded = expandedIndex === index;
+    const isSynced = item.startMs > 0;
+    const isPlaybackActive = currentMs >= item.startMs && currentMs <= item.endMs && isSynced;
 
     return (
-      <View style={styles.card}>
+      <View style={[styles.tableRow, isPlaybackActive && styles.tableRowPlaybackActive]}>
+        {/* Row Header / Main Strip */}
         <TouchableOpacity
-          style={styles.cardHeader}
-          onPress={() => setExpandedLine(expanded ? null : index)}
+          style={styles.rowMain}
+          onPress={() => setExpandedIndex(isExpanded ? null : index)}
+          activeOpacity={0.7}
         >
-          <View style={styles.cardIcon}>
-            <Ionicons
-              name={item.startMs > 0 ? 'checkmark-circle' : 'ellipse-outline'}
-              size={18}
-              color={item.startMs > 0 ? '#10B981' : '#333A4A'}
+          {/* Index & Sync status indicator */}
+          <View style={styles.indexCol}>
+            <Text style={[styles.indexText, isPlaybackActive && styles.indexTextActive]}>
+              {(index + 1).toString().padStart(2, '0')}
+            </Text>
+            <View
+              style={[
+                styles.statusDot,
+                isSynced ? styles.statusDotSynced : styles.statusDotUnsynced,
+                isPlaybackActive && styles.statusDotLive,
+              ]}
             />
           </View>
-          <View style={styles.cardTextWrap}>
-            <Text style={styles.cardLineNo} numberOfLines={1}>
-              Line {index + 1}
-            </Text>
-            <Text style={styles.cardText} numberOfLines={1}>
+
+          {/* Line text & timecode readout */}
+          <View style={styles.contentCol}>
+            <Text
+              style={[
+                styles.lineText,
+                isPlaybackActive ? styles.lineTextLive : isSynced ? styles.lineTextSynced : styles.lineTextUnsynced,
+              ]}
+              numberOfLines={isExpanded ? undefined : 1}
+            >
               {item.text}
             </Text>
-            <Text style={styles.cardTimestamp}>
-              {item.startMs > 0 ? `${formatMs(item.startMs)} → ${formatMs(item.endMs)}` : 'not synced'}
-            </Text>
+
+            <View style={styles.timecodeRow}>
+              <Text style={styles.timecodeLabel}>TC</Text>
+              <Text style={[styles.timecodeValue, isSynced && styles.timecodeValueSynced]}>
+                {isSynced
+                  ? `${formatPreciseMs(item.startMs)} ➔ ${formatPreciseMs(item.endMs)}`
+                  : '00:00.00 ➔ 00:00.00'}
+              </Text>
+            </View>
           </View>
-          <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={20}
-            color="#888888"
-          />
+
+          {/* Expand / Inspect indicator */}
+          <View style={styles.actionCol}>
+            <Ionicons
+              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={isExpanded ? theme.accent : '#52525B'}
+            />
+          </View>
         </TouchableOpacity>
 
-        {expanded && (
-          <View style={styles.cardBody}>
-            {/* Per-line nudge */}
-            <View style={styles.bodyRow}>
-              <Text style={styles.bodyLabel}>Line ±ms</Text>
-              <NudgeGroup onNudge={(delta) => onNudgeLine(index, delta)} />
+        {/* ─── INSTRUMENT INSPECTION DRAWER ─── */}
+        {isExpanded && (
+          <View style={styles.inspectorDrawer}>
+            {/* Quick transport seek */}
+            <View style={styles.drawerSection}>
+              <View style={styles.drawerHeader}>
+                <Text style={styles.drawerSectionTitle}>LINE TIMING CALIBRATION</Text>
+                {isSynced && (
+                  <TouchableOpacity
+                    style={styles.listenBtn}
+                    onPress={() => onSeek(item.startMs)}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="play" size={10} color={theme.accent} />
+                    <Text style={styles.listenBtnText}>PLAY FROM LINE</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Monospace Stepper Controls */}
+              <View style={styles.stepperGroup}>
+                <StepperBtn value={-100} onPress={() => onNudgeLine(index, -100)} />
+                <StepperBtn value={-10} onPress={() => onNudgeLine(index, -10)} />
+                <StepperBtn value={10} onPress={() => onNudgeLine(index, 10)} />
+                <StepperBtn value={100} onPress={() => onNudgeLine(index, 100)} />
+              </View>
             </View>
 
-            {/* Seek to line */}
-            {item.startMs > 0 && (
-              <TouchableOpacity style={styles.seekBtn} onPress={() => onSeek(item.startMs)}>
-                <Ionicons name="play-skip-forward-outline" size={14} color="#00E5FF" />
-                <Text style={styles.seekBtnText}>Listen to this line</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Per-word nudge */}
-            {item.words.length > 0 && (
-              <View style={styles.wordList}>
-                <Text style={styles.wordListTitle}>Words</Text>
+            {/* Word-level timing telemetry (if present) */}
+            {item.words && item.words.length > 0 && (
+              <View style={[styles.drawerSection, styles.drawerSectionBorder]}>
+                <Text style={styles.drawerSectionTitle}>WORD TELEMETRY</Text>
                 {item.words.map((word, wi) => (
-                  <View key={word.id} style={styles.wordRow}>
-                    <View style={styles.wordInfo}>
-                      <Text style={styles.wordText} numberOfLines={1}>
+                  <View key={word.id} style={styles.wordTelemetryRow}>
+                    <View style={styles.wordDetails}>
+                      <Text style={styles.wordName} numberOfLines={1}>
                         {word.text}
                       </Text>
-                      <Text style={styles.wordTimestamp}>
-                        {word.startMs > 0 ? `${formatMs(word.startMs)} → ${formatMs(word.endMs)}` : '—'}
+                      <Text style={styles.wordTimecode}>
+                        {word.startMs > 0 ? formatPreciseMs(word.startMs) : '--:--.--'}
                       </Text>
                     </View>
-                    <View style={styles.wordNudgeWrap}>
-                      <NudgeButton value={-10} color="#232B3A" onPress={() => onNudgeWord(index, wi, -10)} />
-                      <NudgeButton value={10} color="#0D3B3F" onPress={() => onNudgeWord(index, wi, 10)} />
+
+                    <View style={styles.wordSteppers}>
+                      <StepperBtn value={-10} onPress={() => onNudgeWord(index, wi, -10)} />
+                      <StepperBtn value={10} onPress={() => onNudgeWord(index, wi, 10)} />
                     </View>
                   </View>
                 ))}
@@ -146,34 +177,44 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.headerTitle}>Fine Tune</Text>
-            <Text style={styles.headerSub}>
-              Nudge each line or word by ±10 / ±100 ms
-            </Text>
+        {/* ─── WORKSTATION TITLEBAR ─── */}
+        <View style={styles.titleBar}>
+          <View style={styles.titleInfo}>
+            <Text style={styles.stationLabel}>WORKSTATION // CALIBRATION</Text>
+            <Text style={styles.stationTitle}>Fine Tune Synchronization</Text>
           </View>
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <Ionicons name="close" size={22} color="#FFFFFF" />
+          <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={8}>
+            <Ionicons name="close" size={20} color="#F4F4F5" />
           </TouchableOpacity>
         </View>
 
-        {/* Transport strip */}
-        <View style={styles.transport}>
-          <Text style={styles.transportTime}>{formatMs(currentMs)}</Text>
-          <TouchableOpacity style={styles.playBtn} onPress={onPlayPause}>
-            <Ionicons name={isPlaying ? 'pause' : 'play'} size={20} color="#000000" />
+        {/* ─── LIVE TRANSPORT TELEMETRY STRIP ─── */}
+        <View style={styles.transportTelemetry}>
+          <TouchableOpacity style={styles.transportPlayBtn} onPress={onPlayPause} hitSlop={6}>
+            <Ionicons
+              name={isPlaying ? 'pause' : 'play'}
+              size={16}
+              color={theme.accent}
+              style={{ marginLeft: isPlaying ? 0 : 2 }}
+            />
           </TouchableOpacity>
-          <Text style={styles.transportHint}>Tap a line to tune it</Text>
+
+          <View style={styles.liveClockGroup}>
+            <Text style={styles.liveClockLabel}>CURRENT TIMECODE</Text>
+            <Text style={styles.liveClockValue}>{formatPreciseMs(currentMs)}</Text>
+          </View>
+
+          <View style={styles.transportLegend}>
+            <Text style={styles.legendText}>TAP ROW TO EXPAND STEPPER</Text>
+          </View>
         </View>
 
-        {/* Lines list */}
+        {/* ─── INSTRUMENT PANEL TABLE ─── */}
         <FlatList
           data={lines}
           keyExtractor={(item) => item.id}
-          renderItem={renderLine}
-          contentContainerStyle={styles.list}
+          renderItem={renderItem}
+          contentContainerStyle={styles.tableList}
           showsVerticalScrollIndicator={false}
         />
       </SafeAreaView>
@@ -184,203 +225,260 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0C10',
+    backgroundColor: '#000000',
   },
-  header: {
+  titleBar: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1D27',
+    borderBottomColor: '#18181B',
   },
-  headerLeft: {
+  titleInfo: {
     flex: 1,
   },
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  headerSub: {
-    color: '#888888',
-    fontSize: 12,
+  stationLabel: {
+    color: '#52525B',
+    fontSize: 9,
     fontWeight: '600',
-    marginTop: 2,
+    letterSpacing: 1.2,
+    marginBottom: 2,
+  },
+  stationTitle: {
+    color: '#F4F4F5',
+    fontSize: 16,
+    fontWeight: '500',
   },
   closeBtn: {
-    backgroundColor: '#1E2430',
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 6,
   },
-  transport: {
+  transportTelemetry: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 10,
-    gap: 12,
+    backgroundColor: '#08080A',
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1D27',
+    borderBottomColor: '#18181B',
+    gap: 14,
   },
-  transportTime: {
-    color: '#00E5FF',
-    fontSize: 15,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-    width: 56,
-  },
-  playBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#00E5FF',
+  transportPlayBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#27272A',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  transportHint: {
-    color: '#555555',
-    fontSize: 12,
+  liveClockGroup: {
+    gap: 1,
+  },
+  liveClockLabel: {
+    color: '#52525B',
+    fontSize: 8,
     fontWeight: '600',
-    flex: 1,
-    textAlign: 'right',
+    letterSpacing: 0.8,
   },
-  list: {
-    padding: 16,
-  },
-  card: {
-    backgroundColor: '#12151E',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#222834',
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  cardIcon: {
-    width: 30,
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  cardTextWrap: {
-    flex: 1,
-  },
-  cardLineNo: {
-    color: '#555555',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  cardText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  cardTimestamp: {
-    color: '#10B98180',
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
-    fontVariant: ['tabular-nums'],
-  },
-  cardBody: {
-    borderTopWidth: 1,
-    borderTopColor: '#1A1D27',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  bodyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  bodyLabel: {
-    color: '#AAAAAA',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  nudgeGroup: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  nudgeBtn: {
-    minWidth: 44,
-    height: 30,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#3A4356',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  nudgeBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
-  seekBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#0D1A26',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 6,
-    marginBottom: 12,
-  },
-  seekBtnText: {
-    color: '#00E5FF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  wordList: {
-    borderTopWidth: 1,
-    borderTopColor: '#222834',
-    paddingTop: 10,
-  },
-  wordListTitle: {
-    color: '#555555',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  wordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  wordInfo: {
-    flex: 1,
-  },
-  wordText: {
-    color: '#FFFFFF',
+  liveClockValue: {
+    color: '#3E9BFF',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
-  wordTimestamp: {
-    color: '#888888',
+  transportLegend: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  legendText: {
+    color: '#3F3F46',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+  },
+  tableList: {
+    paddingVertical: 8,
+  },
+  tableRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#121214',
+  },
+  tableRowPlaybackActive: {
+    backgroundColor: '#0A0A10',
+  },
+  rowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  indexCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 36,
+    gap: 6,
+  },
+  indexText: {
+    color: '#3F3F46',
+    fontSize: 11,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
+  indexTextActive: {
+    color: '#3E9BFF',
+  },
+  statusDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  statusDotSynced: {
+    backgroundColor: '#30D158',
+  },
+  statusDotUnsynced: {
+    backgroundColor: '#27272A',
+  },
+  statusDotLive: {
+    backgroundColor: '#3E9BFF',
+    shadowColor: '#3E9BFF',
+    shadowRadius: 4,
+    shadowOpacity: 0.8,
+  },
+  contentCol: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  lineText: {
+    fontSize: 14,
+    fontWeight: '400',
+    lineHeight: 20,
+  },
+  lineTextLive: {
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  lineTextSynced: {
+    color: '#A1A1AA',
+  },
+  lineTextUnsynced: {
+    color: '#52525B',
+  },
+  timecodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 6,
+  },
+  timecodeLabel: {
+    color: '#3F3F46',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+  },
+  timecodeValue: {
+    color: '#52525B',
+    fontSize: 11,
+    fontWeight: '400',
+    fontVariant: ['tabular-nums'],
+  },
+  timecodeValueSynced: {
+    color: '#71717A',
+  },
+  actionCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 20,
+  },
+  inspectorDrawer: {
+    backgroundColor: '#08080A',
+    borderTopWidth: 1,
+    borderTopColor: '#18181B',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  drawerSection: {
+    marginBottom: 8,
+  },
+  drawerSectionBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#121214',
+    paddingTop: 12,
+    marginTop: 6,
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  drawerSectionTitle: {
+    color: '#52525B',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 1.0,
+  },
+  listenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  listenBtnText: {
+    color: '#3E9BFF',
     fontSize: 10,
     fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-    marginTop: 1,
+    letterSpacing: 0.6,
   },
-  wordNudgeWrap: {
+  stepperGroup: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  stepperBtn: {
+    flex: 1,
+    height: 32,
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperBtnText: {
+    color: '#F4F4F5',
+    fontSize: 11,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
+  wordTelemetryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#121214',
+  },
+  wordDetails: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  wordName: {
+    color: '#F4F4F5',
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  wordTimecode: {
+    color: '#71717A',
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+  },
+  wordSteppers: {
     flexDirection: 'row',
     gap: 6,
+    width: 100,
   },
 });

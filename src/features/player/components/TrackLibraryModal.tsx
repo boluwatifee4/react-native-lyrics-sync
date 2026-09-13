@@ -8,10 +8,12 @@ import {
   FlatList,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchAllTracks, fetchTrackWithLyrics, deleteTrack } from '../../../services/db';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { Track } from '../../../domain/lyrics';
+import { Colors } from '../../../constants/theme';
 
 interface TrackLibraryModalProps {
   visible: boolean;
@@ -27,6 +29,7 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
   const [tracks, setTracks] = useState<Track[]>([]);
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const setActiveTrack = usePlayerStore((s) => s.setActiveTrack);
+  const theme = Colors.dark;
 
   const loadTracks = async () => {
     try {
@@ -52,7 +55,7 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
   };
 
   const handleDeleteTrack = async (trackId: string, trackTitle: string) => {
-    Alert.alert('Delete Track', `Are you sure you want to delete "${trackTitle}"?`, [
+    Alert.alert('DELETE TRACK', `Remove "${trackTitle}" and its synchronization data?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -72,88 +75,107 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
     ]);
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusTelemetry = (status: string) => {
     switch (status) {
       case 'word_synced':
-        return { label: '✓ Word Synced', bg: '#065F46', text: '#34D399' };
+        return { label: 'WORD SYNCED', color: '#30D158' };
       case 'line_synced':
-        return { label: '✓ Line Synced', bg: '#1E3A8A', text: '#60A5FA' };
+        return { label: 'LINE SYNCED', color: '#3E9BFF' };
       default:
-        return { label: '○ Draft (Needs Sync)', bg: '#374151', text: '#FBBF24' };
+        return { label: 'RAW DRAFT', color: '#71717A' };
     }
   };
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
+        {/* ─── TITLEBAR ─── */}
         <View style={styles.header}>
-          <Text style={styles.title}>Track Library</Text>
+          <View>
+            <Text style={styles.headerLabel}>STORAGE // ASSETS</Text>
+            <Text style={styles.headerTitle}>Audio Flight Library</Text>
+          </View>
           <View style={styles.headerActions}>
             {onOpenImport && (
               <TouchableOpacity
-                style={styles.addBtn}
+                style={styles.ingestBtn}
                 onPress={() => {
                   onClose();
                   onOpenImport();
                 }}
               >
-                <Text style={styles.addBtnText}>+ New</Text>
+                <Ionicons name="add" size={14} color="#3E9BFF" />
+                <Text style={styles.ingestBtnText}>INGEST</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Done</Text>
+            <TouchableOpacity onPress={onClose} style={styles.doneBtn}>
+              <Text style={styles.doneText}>DONE</Text>
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* ─── TRACK DIRECTORY LIST ─── */}
         <FlatList
           data={tracks}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const isActive = item.id === activeTrack?.id;
-            const badge = getStatusBadge(item.syncStatus);
+            const status = getStatusTelemetry(item.syncStatus);
 
             return (
               <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={() => handleSelectTrack(item.id)}
-                style={[styles.trackCard, isActive && styles.activeCard]}
+                style={[styles.trackRow, isActive && styles.trackRowActive]}
               >
-                <View style={styles.iconBox}>
-                  <Ionicons
-                    name={isActive ? 'musical-notes' : 'disc-outline'}
-                    size={24}
-                    color={isActive ? '#00E5FF' : '#888888'}
-                  />
-                </View>
+                {/* Status indicator bar */}
+                <View
+                  style={[
+                    styles.activeIndicator,
+                    { backgroundColor: isActive ? '#3E9BFF' : 'transparent' },
+                  ]}
+                />
 
-                <View style={styles.trackInfo}>
-                  <Text style={[styles.trackTitle, isActive && styles.activeTrackTitle]}>
+                {/* Index numbering */}
+                <Text style={[styles.indexNum, isActive && styles.indexNumActive]}>
+                  {(index + 1).toString().padStart(2, '0')}
+                </Text>
+
+                {/* Track metadata */}
+                <View style={styles.trackDetails}>
+                  <Text
+                    style={[styles.trackTitle, isActive && styles.trackTitleActive]}
+                    numberOfLines={1}
+                  >
                     {item.title}
                   </Text>
-                  <Text style={styles.artistName}>{item.artist}</Text>
-
-                  <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-                    <Text style={[styles.badgeText, { color: badge.text }]}>
-                      {badge.label}
+                  <View style={styles.subRow}>
+                    <Text style={styles.artistName} numberOfLines={1}>
+                      {item.artist}
+                    </Text>
+                    <Text style={styles.metaDot}>•</Text>
+                    <Text style={[styles.statusBadge, { color: status.color }]}>
+                      {status.label}
                     </Text>
                   </View>
                 </View>
 
+                {/* Actions */}
                 {item.id !== 'sample-1' && (
                   <TouchableOpacity
                     style={styles.deleteBtn}
                     onPress={() => handleDeleteTrack(item.id, item.title)}
+                    hitSlop={8}
                   >
-                    <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                    <Ionicons name="trash-outline" size={16} color="#71717A" />
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
             );
           }}
         />
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
@@ -161,101 +183,128 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F1117',
-    paddingTop: 16,
+    backgroundColor: '#000000',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#222834',
+    borderBottomColor: '#18181B',
   },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '800',
+  headerLabel: {
+    color: '#52525B',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    marginBottom: 2,
+  },
+  headerTitle: {
+    color: '#F4F4F5',
+    fontSize: 16,
+    fontWeight: '500',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  addBtn: {
-    backgroundColor: '#00E5FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  addBtnText: {
-    color: '#000000',
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  closeBtn: {
-    padding: 6,
-  },
-  closeText: {
-    color: '#00E5FF',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  list: {
-    padding: 16,
-  },
-  trackCard: {
+  ingestBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#161922',
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 12,
+    backgroundColor: '#08080A',
     borderWidth: 1,
-    borderColor: '#242A38',
+    borderColor: '#27272A',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 2,
+    gap: 4,
   },
-  activeCard: {
-    borderColor: '#00E5FF',
-    backgroundColor: '#1C2333',
+  ingestBtnText: {
+    color: '#3E9BFF',
+    fontWeight: '600',
+    fontSize: 10,
+    letterSpacing: 0.8,
   },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: '#1F2432',
+  doneBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  doneText: {
+    color: '#F4F4F5',
+    fontWeight: '600',
+    fontSize: 12,
+    letterSpacing: 0.8,
+  },
+  list: {
+    paddingVertical: 4,
+  },
+  trackRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#121214',
+    position: 'relative',
   },
-  trackInfo: {
+  trackRowActive: {
+    backgroundColor: '#08080C',
+  },
+  activeIndicator: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 2,
+  },
+  indexNum: {
+    color: '#3F3F46',
+    fontSize: 11,
+    fontWeight: '500',
+    width: 28,
+    fontVariant: ['tabular-nums'],
+  },
+  indexNumActive: {
+    color: '#3E9BFF',
+  },
+  trackDetails: {
     flex: 1,
+    paddingRight: 12,
   },
   trackTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: '#F4F4F5',
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: -0.1,
   },
-  activeTrackTitle: {
-    color: '#00E5FF',
+  trackTitleActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  subRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    gap: 6,
   },
   artistName: {
-    color: '#888888',
-    fontSize: 13,
-    marginTop: 2,
-    marginBottom: 6,
+    color: '#8A8A8E',
+    fontSize: 12,
   },
-  badge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
+  metaDot: {
+    color: '#3F3F46',
+    fontSize: 10,
   },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+  statusBadge: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.8,
   },
   deleteBtn: {
-    padding: 8,
+    padding: 6,
   },
 });

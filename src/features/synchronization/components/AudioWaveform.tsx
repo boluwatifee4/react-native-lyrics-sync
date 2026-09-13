@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Text, Pressable, LayoutChangeEvent } from 'react-native';
+import { Colors } from '../../../constants/theme';
 
 interface AudioWaveformProps {
   positionMs: number;
@@ -8,29 +9,31 @@ interface AudioWaveformProps {
   onSeekRequested?: (ms: number) => void;
 }
 
-// Generate realistic pseudo-amplitude waveform bars
+// 48-point acoustic telemetry waveform pattern
 const SAMPLE_BARS = [
-  0.2, 0.4, 0.6, 0.8, 0.5, 0.3, 0.7, 0.9, 1.0, 0.8, 0.6, 0.4, 0.2, 0.5, 0.8, 0.6,
-  0.3, 0.7, 0.9, 0.5, 0.2, 0.6, 0.8, 0.7, 0.4, 0.9, 1.0, 0.6, 0.3, 0.5, 0.8, 0.4,
-  0.2, 0.6, 0.9, 0.7, 0.5, 0.8, 0.4, 0.2, 0.6, 0.9, 0.8, 0.5, 0.3, 0.7, 0.9, 0.6,
+  0.22, 0.38, 0.65, 0.82, 0.48, 0.32, 0.72, 0.94, 1.0, 0.85, 0.62, 0.44, 0.25, 0.55, 0.88, 0.64,
+  0.35, 0.76, 0.92, 0.58, 0.24, 0.66, 0.84, 0.72, 0.42, 0.90, 0.98, 0.68, 0.34, 0.52, 0.82, 0.45,
+  0.28, 0.64, 0.91, 0.75, 0.50, 0.84, 0.46, 0.22, 0.60, 0.95, 0.82, 0.54, 0.30, 0.68, 0.89, 0.58,
 ];
 
 export const AudioWaveform: React.FC<AudioWaveformProps> = ({
   positionMs,
   durationMs,
-  height = 48,
+  height = 42,
   onSeekRequested,
 }) => {
   const [containerWidth, setContainerWidth] = useState(0);
+  const theme = Colors.dark;
 
   const progressRatio = durationMs > 0 ? Math.min(1.0, positionMs / durationMs) : 0;
   const activeBarIndex = Math.floor(progressRatio * SAMPLE_BARS.length);
 
-  const formatMs = (ms: number) => {
-    const totalSec = Math.floor(ms / 1000);
+  const formatPreciseMs = (ms: number) => {
+    const totalSec = Math.floor(Math.max(0, ms) / 1000);
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
-    return `${min}:${sec.toString().padStart(2, '0')}`;
+    const millis = Math.floor((Math.max(0, ms) % 1000) / 100);
+    return `${min}:${sec.toString().padStart(2, '0')}.${millis}`;
   };
 
   const handleLayout = (e: LayoutChangeEvent) => {
@@ -45,18 +48,29 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 
   return (
     <View style={styles.container}>
+      {/* Top telemetry rule & tick marks */}
+      <View style={styles.rulerContainer}>
+        <View style={styles.tickMark} />
+        <View style={[styles.tickMark, styles.tickSubtle]} />
+        <View style={[styles.tickMark, styles.tickSubtle]} />
+        <View style={styles.tickMark} />
+        <View style={[styles.tickMark, styles.tickSubtle]} />
+        <View style={[styles.tickMark, styles.tickSubtle]} />
+        <View style={styles.tickMark} />
+      </View>
+
       <Pressable
         onLayout={handleLayout}
         onPress={handlePress}
         style={({ pressed }) => [
-          styles.waveformBox,
+          styles.waveformTrack,
           { height },
-          pressed && styles.waveformBoxPressed,
+          pressed && styles.waveformPressed,
         ]}
-        hitSlop={4}
+        hitSlop={6}
       >
         {SAMPLE_BARS.map((amp, idx) => {
-          const isPassed = idx <= activeBarIndex;
+          const isPassed = idx < activeBarIndex;
           const isCurrent = idx === activeBarIndex;
 
           return (
@@ -65,28 +79,42 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
               style={[
                 styles.bar,
                 {
-                  height: `${Math.max(15, amp * 100)}%`,
+                  height: `${Math.max(12, amp * 100)}%`,
                   backgroundColor: isCurrent
-                    ? '#00E5FF'
+                    ? theme.accent
                     : isPassed
-                    ? '#38BDF8'
-                    : '#262C3A',
+                    ? theme.textSecondary
+                    : theme.hairline,
                 },
               ]}
             />
           );
         })}
 
-        {/* Playhead line */}
-        <View style={[styles.playheadLine, { left: `${progressRatio * 100}%` }]} />
+        {/* Razor playhead line */}
+        <View
+          style={[
+            styles.playheadLine,
+            { left: `${progressRatio * 100}%` },
+          ]}
+        />
       </Pressable>
 
-      {/* Time labels */}
+      {/* Instrumentation Timecode Readout */}
       <View style={styles.timeRow}>
-        <Text style={styles.timeLabel}>{formatMs(positionMs)}</Text>
-        <Text style={[styles.timeLabel, onSeekRequested && styles.timeHint]}>
-          {onSeekRequested ? '⇠ tap to seek ⇢' : formatMs(durationMs)}
-        </Text>
+        <View style={styles.readoutGroup}>
+          <Text style={styles.readoutLabel}>ELAPSED</Text>
+          <Text style={styles.timeLabel}>{formatPreciseMs(positionMs)}</Text>
+        </View>
+
+        {onSeekRequested && (
+          <Text style={styles.seekHint}>TAP TIMELINE TO SEEK</Text>
+        )}
+
+        <View style={[styles.readoutGroup, { alignItems: 'flex-end' }]}>
+          <Text style={styles.readoutLabel}>TOTAL</Text>
+          <Text style={styles.timeLabel}>{formatPreciseMs(durationMs)}</Text>
+        </View>
       </View>
     </View>
   );
@@ -94,52 +122,78 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#12151E',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    marginVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#222834',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#18181B',
   },
-  waveformBox: {
+  rulerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  tickMark: {
+    width: 1,
+    height: 4,
+    backgroundColor: '#27272A',
+  },
+  tickSubtle: {
+    height: 2,
+    backgroundColor: '#18181B',
+  },
+  waveformTrack: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     position: 'relative',
   },
-  waveformBoxPressed: {
-    opacity: 0.6,
+  waveformPressed: {
+    opacity: 0.7,
   },
   bar: {
     flex: 1,
     marginHorizontal: 1,
-    borderRadius: 2,
+    borderRadius: 1,
   },
   playheadLine: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 2,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#00E5FF',
+    width: 1.5,
+    backgroundColor: '#3E9BFF',
+    shadowColor: '#3E9BFF',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
+    shadowOpacity: 0.6,
+    shadowRadius: 3,
   },
   timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 6,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  readoutGroup: {
+    gap: 1,
+  },
+  readoutLabel: {
+    color: '#52525B',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.8,
   },
   timeLabel: {
-    color: '#888888',
+    color: '#A1A1AA',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
-  timeHint: {
-    color: '#00E5FF',
+  seekHint: {
+    color: '#3F3F46',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 1.0,
   },
 });
