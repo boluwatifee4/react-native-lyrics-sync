@@ -1,5 +1,5 @@
-import React, { memo, useEffect, useRef } from 'react';
-import { FlatList, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
+import React, { memo, useEffect, useRef, useCallback } from 'react';
+import { FlatList, StyleSheet, TouchableOpacity, View, Text, Platform } from 'react-native';
 import Animated, {
   interpolateColor,
   useAnimatedStyle,
@@ -106,8 +106,11 @@ export const SynchronizedLyricsView: React.FC<SynchronizedLyricsViewProps> = ({
     }
   }, [activeLineIndex]);
 
-  const renderLine = ({ item }: { item: LyricLine }) => (
-    <LyricLineRow line={item} timeMs={timeMs} onSeekRequested={onSeekRequested} />
+  const renderLine = useCallback(
+    ({ item }: { item: LyricLine }) => (
+      <LyricLineRow line={item} timeMs={timeMs} onSeekRequested={onSeekRequested} />
+    ),
+    [timeMs, onSeekRequested]
   );
 
   return (
@@ -120,6 +123,10 @@ export const SynchronizedLyricsView: React.FC<SynchronizedLyricsViewProps> = ({
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         onScrollToIndexFailed={() => {}}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
       />
     </View>
   );

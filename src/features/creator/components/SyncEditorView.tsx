@@ -41,6 +41,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type LineState = 'synced' | 'active' | 'waiting';
 
+function formatPreciseMs(ms: number): string {
+  const safeMs = Math.max(0, ms);
+  const totalSec = Math.floor(safeMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  const millis = Math.floor((safeMs % 1000) / 10).toString().padStart(2, '0');
+  return `${min}:${sec.toString().padStart(2, '0')}.${millis}`;
+}
+
 function getLineState(
   index: number,
   activeIndex: number,
@@ -51,6 +60,69 @@ function getLineState(
   if (index === activeIndex) return 'active';
   return 'waiting';
 }
+
+interface SyncTableRowProps {
+  item: LyricLine;
+  index: number;
+  state: LineState;
+  isCurrentActive: boolean;
+  onSelectLine: (index: number) => void;
+}
+
+const SyncTableRow = React.memo(function SyncTableRow({
+  item,
+  index,
+  state,
+  isCurrentActive,
+  onSelectLine,
+}: SyncTableRowProps) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.tableRow,
+        state === 'active' && styles.tableRowActive,
+        state === 'synced' && styles.tableRowSynced,
+      ]}
+      onPress={() => onSelectLine(index)}
+      activeOpacity={0.7}
+    >
+      {/* Telemetry status dot & index */}
+      <View style={styles.rowTelemetryCol}>
+        <Text style={[styles.rowLineNum, isCurrentActive && styles.rowLineNumActive]}>
+          {(index + 1).toString().padStart(2, '0')}
+        </Text>
+        <View
+          style={[
+            styles.rowDot,
+            state === 'synced' && styles.rowDotSynced,
+            state === 'active' && styles.rowDotActive,
+            state === 'waiting' && styles.rowDotWaiting,
+          ]}
+        />
+      </View>
+
+      {/* Line text & timecode readout */}
+      <View style={styles.rowTextCol}>
+        <Text
+          style={[
+            styles.lineText,
+            state === 'active' && styles.lineTextActive,
+            state === 'synced' && styles.lineTextSynced,
+            state === 'waiting' && styles.lineTextWaiting,
+          ]}
+          numberOfLines={2}
+        >
+          {item.text}
+        </Text>
+        {state === 'synced' && item.startMs > 0 && (
+          <Text style={styles.lineTimecode}>
+            {formatPreciseMs(item.startMs)} ➔ {formatPreciseMs(item.endMs)}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 function useFlashAnim() {
   const flashOpacity = useRef(new Animated.Value(0)).current;
@@ -521,61 +593,23 @@ export const SyncEditorView: React.FC = () => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         onScrollToIndexFailed={() => {}}
-        renderItem={({ item, index }) => {
-          const state = getLineState(index, activeIdx, item, isLineSynced);
-          const isCurrentActive = index === activeIdx;
-
-          return (
-            <TouchableOpacity
-              style={[
-                styles.tableRow,
-                state === 'active' && styles.tableRowActive,
-                state === 'synced' && styles.tableRowSynced,
-              ]}
-              onPress={() => {
-                setActiveLineIndex(index);
-                setSelectedLineIndex(index);
-                setActiveWordIndex(0);
-              }}
-              activeOpacity={0.7}
-            >
-              {/* Telemetry status dot & index */}
-              <View style={styles.rowTelemetryCol}>
-                <Text style={[styles.rowLineNum, isCurrentActive && styles.rowLineNumActive]}>
-                  {(index + 1).toString().padStart(2, '0')}
-                </Text>
-                <View
-                  style={[
-                    styles.rowDot,
-                    state === 'synced' && styles.rowDotSynced,
-                    state === 'active' && styles.rowDotActive,
-                    state === 'waiting' && styles.rowDotWaiting,
-                  ]}
-                />
-              </View>
-
-              {/* Line text & timecode readout */}
-              <View style={styles.rowTextCol}>
-                <Text
-                  style={[
-                    styles.lineText,
-                    state === 'active' && styles.lineTextActive,
-                    state === 'synced' && styles.lineTextSynced,
-                    state === 'waiting' && styles.lineTextWaiting,
-                  ]}
-                  numberOfLines={2}
-                >
-                  {item.text}
-                </Text>
-                {state === 'synced' && item.startMs > 0 && (
-                  <Text style={styles.lineTimecode}>
-                    {formatPreciseMs(item.startMs)} ➔ {formatPreciseMs(item.endMs)}
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={({ item, index }) => (
+          <SyncTableRow
+            item={item}
+            index={index}
+            state={getLineState(index, activeIdx, item, isLineSynced)}
+            isCurrentActive={index === activeIdx}
+            onSelectLine={(idx) => {
+              setActiveLineIndex(idx);
+              setSelectedLineIndex(idx);
+              setActiveWordIndex(0);
+            }}
+          />
+        )}
+        initialNumToRender={14}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
       />
 
       {/* ─── COCKPIT ACTUATION & TRANSPORT FOOTER ─── */}

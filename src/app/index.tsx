@@ -53,7 +53,7 @@ export default function HomeScreen() {
     loadTracks();
   };
 
-  const handleSelectTrack = async (track: Track) => {
+  const handleSelectTrack = useCallback(async (track: Track) => {
     try {
       const data = await fetchTrackWithLyrics(track.id);
       if (data) {
@@ -63,7 +63,7 @@ export default function HomeScreen() {
     } catch (e) {
       console.error('Failed to load track:', e);
     }
-  };
+  }, [router, setActiveTrack]);
 
   const handleImportComplete = async (trackId: string) => {
     try {
@@ -78,16 +78,16 @@ export default function HomeScreen() {
     }
   };
 
-  const handleDelete = async (trackId: string) => {
+  const handleDelete = useCallback(async (trackId: string) => {
     try {
       await deleteTrack(trackId);
       setTracks((prev) => prev.filter((t) => t.id !== trackId));
     } catch (e) {
       console.error('Failed to delete track:', e);
     }
-  };
+  }, []);
 
-  const handleResetSync = async (trackId: string) => {
+  const handleResetSync = useCallback(async (trackId: string) => {
     try {
       await resetTrackSync(trackId);
       setTracks((prev) =>
@@ -98,9 +98,9 @@ export default function HomeScreen() {
     } catch (e) {
       console.error('Failed to reset sync:', e);
     }
-  };
+  }, []);
 
-  const renderTrack = ({ item }: { item: Track }) => {
+  const renderTrack = useCallback(({ item }: { item: Track }) => {
     return (
       <SwipeableTrackRow
         track={item}
@@ -109,7 +109,7 @@ export default function HomeScreen() {
         onResetSync={handleResetSync}
       />
     );
-  };
+  }, [handleSelectTrack, handleDelete, handleResetSync]);
 
   const heroSteps = [
     { icon: 'cloud-upload-outline' as const, title: 'Bring it in', sub: 'Add a song and its lyrics' },

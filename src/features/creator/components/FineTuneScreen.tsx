@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -44,6 +44,143 @@ const StepperBtn: React.FC<{ value: number; onPress: () => void }> = ({ value, o
   </TouchableOpacity>
 );
 
+interface FineTuneRowProps {
+  item: LyricLine;
+  index: number;
+  isExpanded: boolean;
+  currentMs: number;
+  onToggleExpand: (index: number) => void;
+  onSeek: (ms: number) => void;
+  onNudgeLine: (lineIndex: number, deltaMs: number) => void;
+  onNudgeWord: (lineIndex: number, wordIndex: number, deltaMs: number) => void;
+  themeAccent: string;
+}
+
+const FineTuneRow = React.memo(function FineTuneRow({
+  item,
+  index,
+  isExpanded,
+  currentMs,
+  onToggleExpand,
+  onSeek,
+  onNudgeLine,
+  onNudgeWord,
+  themeAccent,
+}: FineTuneRowProps) {
+  const isSynced = item.startMs > 0;
+  const isPlaybackActive = currentMs >= item.startMs && currentMs <= item.endMs && isSynced;
+
+  return (
+    <View style={[styles.tableRow, isPlaybackActive && styles.tableRowPlaybackActive]}>
+      {/* Row Header / Main Strip */}
+      <TouchableOpacity
+        style={styles.rowMain}
+        onPress={() => onToggleExpand(index)}
+        activeOpacity={0.7}
+      >
+        {/* Index & Sync status indicator */}
+        <View style={styles.indexCol}>
+          <Text style={[styles.indexText, isPlaybackActive && styles.indexTextActive]}>
+            {(index + 1).toString().padStart(2, '0')}
+          </Text>
+          <View
+            style={[
+              styles.statusDot,
+              isSynced ? styles.statusDotSynced : styles.statusDotUnsynced,
+              isPlaybackActive && styles.statusDotLive,
+            ]}
+          />
+        </View>
+
+        {/* Line text & timecode readout */}
+        <View style={styles.contentCol}>
+          <Text
+            style={[
+              styles.lineText,
+              isPlaybackActive ? styles.lineTextLive : isSynced ? styles.lineTextSynced : styles.lineTextUnsynced,
+            ]}
+            numberOfLines={isExpanded ? undefined : 1}
+          >
+            {item.text}
+          </Text>
+
+          <View style={styles.timecodeRow}>
+            <Text style={styles.timecodeLabel}>TC</Text>
+            <Text style={[styles.timecodeValue, isSynced && styles.timecodeValueSynced]}>
+              {isSynced
+                ? `${formatPreciseMs(item.startMs)} ➔ ${formatPreciseMs(item.endMs)}`
+                : '00:00.00 ➔ 00:00.00'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Expand / Inspect indicator */}
+        <View style={styles.actionCol}>
+          <Ionicons
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={isExpanded ? themeAccent : '#52525B'}
+          />
+        </View>
+      </TouchableOpacity>
+
+      {/* ─── INSTRUMENT INSPECTION DRAWER ─── */}
+      {isExpanded && (
+        <View style={styles.inspectorDrawer}>
+          {/* Quick transport seek */}
+          <View style={styles.drawerSection}>
+            <View style={styles.drawerHeader}>
+              <Text style={styles.drawerSectionTitle}>LINE TIMING CALIBRATION</Text>
+              {isSynced && (
+                <TouchableOpacity
+                  style={styles.listenBtn}
+                  onPress={() => onSeek(item.startMs)}
+                  hitSlop={6}
+                >
+                  <Ionicons name="play" size={10} color={themeAccent} />
+                  <Text style={styles.listenBtnText}>PLAY FROM LINE</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Monospace Stepper Controls */}
+            <View style={styles.stepperGroup}>
+              <StepperBtn value={-100} onPress={() => onNudgeLine(index, -100)} />
+              <StepperBtn value={-10} onPress={() => onNudgeLine(index, -10)} />
+              <StepperBtn value={10} onPress={() => onNudgeLine(index, 10)} />
+              <StepperBtn value={100} onPress={() => onNudgeLine(index, 100)} />
+            </View>
+          </View>
+
+          {/* Word-level timing telemetry (if present) */}
+          {item.words && item.words.length > 0 && (
+            <View style={[styles.drawerSection, styles.drawerSectionBorder]}>
+              <Text style={styles.drawerSectionTitle}>WORD TELEMETRY</Text>
+              {item.words.map((word, wi) => (
+                <View key={word.id} style={styles.wordTelemetryRow}>
+                  <View style={styles.wordDetails}>
+                    <Text style={styles.wordName} numberOfLines={1}>
+                      {word.text}
+                    </Text>
+                    <Text style={styles.wordTimecode}>
+                      {word.startMs > 0 ? formatPreciseMs(word.startMs) : '--:--.--'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.wordSteppers}>
+                    <StepperBtn value={-10} onPress={() => onNudgeWord(index, wi, -10)} />
+                    <StepperBtn value={10} onPress={() => onNudgeWord(index, wi, 10)} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+});
+
 export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
   visible,
   onClose,
@@ -58,121 +195,26 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const theme = Colors.dark;
 
-  const renderItem = ({ item, index }: { item: LyricLine; index: number }) => {
-    const isExpanded = expandedIndex === index;
-    const isSynced = item.startMs > 0;
-    const isPlaybackActive = currentMs >= item.startMs && currentMs <= item.endMs && isSynced;
+  const handleToggleExpand = useCallback((index: number) => {
+    setExpandedIndex((prev) => (prev === index ? null : index));
+  }, []);
 
-    return (
-      <View style={[styles.tableRow, isPlaybackActive && styles.tableRowPlaybackActive]}>
-        {/* Row Header / Main Strip */}
-        <TouchableOpacity
-          style={styles.rowMain}
-          onPress={() => setExpandedIndex(isExpanded ? null : index)}
-          activeOpacity={0.7}
-        >
-          {/* Index & Sync status indicator */}
-          <View style={styles.indexCol}>
-            <Text style={[styles.indexText, isPlaybackActive && styles.indexTextActive]}>
-              {(index + 1).toString().padStart(2, '0')}
-            </Text>
-            <View
-              style={[
-                styles.statusDot,
-                isSynced ? styles.statusDotSynced : styles.statusDotUnsynced,
-                isPlaybackActive && styles.statusDotLive,
-              ]}
-            />
-          </View>
-
-          {/* Line text & timecode readout */}
-          <View style={styles.contentCol}>
-            <Text
-              style={[
-                styles.lineText,
-                isPlaybackActive ? styles.lineTextLive : isSynced ? styles.lineTextSynced : styles.lineTextUnsynced,
-              ]}
-              numberOfLines={isExpanded ? undefined : 1}
-            >
-              {item.text}
-            </Text>
-
-            <View style={styles.timecodeRow}>
-              <Text style={styles.timecodeLabel}>TC</Text>
-              <Text style={[styles.timecodeValue, isSynced && styles.timecodeValueSynced]}>
-                {isSynced
-                  ? `${formatPreciseMs(item.startMs)} ➔ ${formatPreciseMs(item.endMs)}`
-                  : '00:00.00 ➔ 00:00.00'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Expand / Inspect indicator */}
-          <View style={styles.actionCol}>
-            <Ionicons
-              name={isExpanded ? 'chevron-up' : 'chevron-down'}
-              size={14}
-              color={isExpanded ? theme.accent : '#52525B'}
-            />
-          </View>
-        </TouchableOpacity>
-
-        {/* ─── INSTRUMENT INSPECTION DRAWER ─── */}
-        {isExpanded && (
-          <View style={styles.inspectorDrawer}>
-            {/* Quick transport seek */}
-            <View style={styles.drawerSection}>
-              <View style={styles.drawerHeader}>
-                <Text style={styles.drawerSectionTitle}>LINE TIMING CALIBRATION</Text>
-                {isSynced && (
-                  <TouchableOpacity
-                    style={styles.listenBtn}
-                    onPress={() => onSeek(item.startMs)}
-                    hitSlop={6}
-                  >
-                    <Ionicons name="play" size={10} color={theme.accent} />
-                    <Text style={styles.listenBtnText}>PLAY FROM LINE</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Monospace Stepper Controls */}
-              <View style={styles.stepperGroup}>
-                <StepperBtn value={-100} onPress={() => onNudgeLine(index, -100)} />
-                <StepperBtn value={-10} onPress={() => onNudgeLine(index, -10)} />
-                <StepperBtn value={10} onPress={() => onNudgeLine(index, 10)} />
-                <StepperBtn value={100} onPress={() => onNudgeLine(index, 100)} />
-              </View>
-            </View>
-
-            {/* Word-level timing telemetry (if present) */}
-            {item.words && item.words.length > 0 && (
-              <View style={[styles.drawerSection, styles.drawerSectionBorder]}>
-                <Text style={styles.drawerSectionTitle}>WORD TELEMETRY</Text>
-                {item.words.map((word, wi) => (
-                  <View key={word.id} style={styles.wordTelemetryRow}>
-                    <View style={styles.wordDetails}>
-                      <Text style={styles.wordName} numberOfLines={1}>
-                        {word.text}
-                      </Text>
-                      <Text style={styles.wordTimecode}>
-                        {word.startMs > 0 ? formatPreciseMs(word.startMs) : '--:--.--'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.wordSteppers}>
-                      <StepperBtn value={-10} onPress={() => onNudgeWord(index, wi, -10)} />
-                      <StepperBtn value={10} onPress={() => onNudgeWord(index, wi, 10)} />
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-      </View>
-    );
-  };
+  const renderItem = useCallback(
+    ({ item, index }: { item: LyricLine; index: number }) => (
+      <FineTuneRow
+        item={item}
+        index={index}
+        isExpanded={expandedIndex === index}
+        currentMs={currentMs}
+        onToggleExpand={handleToggleExpand}
+        onSeek={onSeek}
+        onNudgeLine={onNudgeLine}
+        onNudgeWord={onNudgeWord}
+        themeAccent={theme.accent}
+      />
+    ),
+    [expandedIndex, currentMs, handleToggleExpand, onSeek, onNudgeLine, onNudgeWord, theme.accent]
+  );
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -180,11 +222,11 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
         {/* ─── WORKSTATION TITLEBAR ─── */}
         <View style={styles.titleBar}>
           <View style={styles.titleInfo}>
-            <Text style={styles.stationLabel}>WORKSTATION // CALIBRATION</Text>
-            <Text style={styles.stationTitle}>Fine Tune Synchronization</Text>
+            <Text style={styles.stationLabel}>ENGINEERING // TELEMETRY</Text>
+            <Text style={styles.stationTitle}>Fine-Tune Workspace</Text>
           </View>
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={20} color="#F4F4F5" />
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={8}>
+            <Ionicons name="close" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
@@ -216,6 +258,9 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
           renderItem={renderItem}
           contentContainerStyle={styles.tableList}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={7}
         />
       </SafeAreaView>
     </Modal>
