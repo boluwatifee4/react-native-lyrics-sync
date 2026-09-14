@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  Image,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
@@ -13,9 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { fetchAllTracks, fetchTrackWithLyrics } from '../services/db';
+import { fetchAllTracks, fetchTrackWithLyrics, deleteTrack, resetTrackSync } from '../services/db';
 import { usePlayerStore } from '../features/player/store/usePlayerStore';
 import { ImportTrackModal } from '../features/creator/components/ImportTrackModal';
+import { SwipeableTrackRow } from '../components/SwipeableTrackRow';
 import { Track } from '../domain/lyrics';
 import { Colors, Typography } from '../constants/theme';
 
@@ -71,52 +71,43 @@ export default function HomeScreen() {
       if (data) {
         setActiveTrack(data.track, data.lines);
         setIsImportOpen(false);
-        router.push({ pathname: '/player', params: { autoplay: '1' } });
+        router.push('/editor');
       }
     } catch (e) {
       console.error('Failed to load imported track:', e);
     }
   };
 
-  const syncStatus = (status: string) => {
-    switch (status) {
-      case 'word_synced':
-        return { label: 'WORD SYNC', color: theme.success, bg: theme.successMuted };
-      case 'line_synced':
-        return { label: 'LINE SYNC', color: theme.warning, bg: theme.warningMuted };
-      default:
-        return { label: 'DRAFT', color: theme.textMuted, bg: 'transparent' };
+  const handleDelete = async (trackId: string) => {
+    try {
+      await deleteTrack(trackId);
+      setTracks((prev) => prev.filter((t) => t.id !== trackId));
+    } catch (e) {
+      console.error('Failed to delete track:', e);
+    }
+  };
+
+  const handleResetSync = async (trackId: string) => {
+    try {
+      await resetTrackSync(trackId);
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId ? { ...t, syncStatus: 'draft' } : t
+        )
+      );
+    } catch (e) {
+      console.error('Failed to reset sync:', e);
     }
   };
 
   const renderTrack = ({ item }: { item: Track }) => {
-    const status = syncStatus(item.syncStatus);
     return (
-      <TouchableOpacity
-        style={styles.trackCard}
-        onPress={() => handleSelectTrack(item)}
-        activeOpacity={0.65}
-      >
-        <Image
-          source={{ uri: item.coverUri || 'https://picsum.photos/200/200' }}
-          style={styles.trackCover}
-        />
-        <View style={styles.trackInfo}>
-          <Text style={styles.trackTitle} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.trackArtist} numberOfLines={1}>
-            {item.artist}
-          </Text>
-          <View style={styles.trackFooter}>
-            <View style={[styles.statusDot, { backgroundColor: status.color }]} />
-            <Text style={[styles.statusLabel, { color: status.color }]}>{status.label}</Text>
-          </View>
-        </View>
-        <View style={styles.trackAction}>
-          <Ionicons name="play" size={14} color={theme.accent} />
-        </View>
-      </TouchableOpacity>
+      <SwipeableTrackRow
+        track={item}
+        onSelect={handleSelectTrack}
+        onDelete={handleDelete}
+        onResetSync={handleResetSync}
+      />
     );
   };
 

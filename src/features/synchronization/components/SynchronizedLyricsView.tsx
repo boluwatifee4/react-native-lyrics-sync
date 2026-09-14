@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useRef } from 'react';
-import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { FlatList, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import Animated, {
   interpolateColor,
   useAnimatedStyle,
@@ -22,18 +22,33 @@ interface LyricLineRowProps {
   onSeekRequested?: (startMs: number) => void;
 }
 
-/**
- * A single lyric line. The entire row derives its presence from the shared
- * audio clock: LINE_FOCUS_FLOOR when receded, 1 while the audio is inside the
- * line's window. Movement is a gentle camera reframe — never a teleport.
- */
 const LyricLineRow = memo(function LyricLineRow({ line, timeMs, onSeekRequested }: LyricLineRowProps) {
+  const isSynced = line.startMs > 0 || line.endMs > 0;
+
+  if (!isSynced) {
+    return (
+      <View style={styles.lineWrapper}>
+        <View style={styles.wordsContainer}>
+          <Text style={styles.staticFallbackLineText}>
+            {line.text}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return <SyncedLyricLineRow line={line} timeMs={timeMs} onSeekRequested={onSeekRequested} />;
+});
+
+const SyncedLyricLineRow = memo(function SyncedLyricLineRow({ line, timeMs, onSeekRequested }: LyricLineRowProps) {
+  const hasWordSync = Boolean(line.words && line.words.some((w) => w.startMs > 0 || w.endMs > 0));
+
   const rowStyle = useAnimatedStyle(() => {
     const focus = computeLineFocus(timeMs.value, line.startMs, line.endMs);
     return { opacity: focus };
   });
 
-  const fallbackColorStyle = useAnimatedStyle(() => {
+  const lineColorStyle = useAnimatedStyle(() => {
     const focus = computeLineFocus(timeMs.value, line.startMs, line.endMs);
     return {
       color: interpolateColor(
@@ -55,12 +70,12 @@ const LyricLineRow = memo(function LyricLineRow({ line, timeMs, onSeekRequested 
     <Animated.View style={rowStyle}>
       <TouchableOpacity activeOpacity={0.7} onPress={handleTap} style={styles.lineWrapper}>
         <View style={styles.wordsContainer}>
-          {line.words && line.words.length > 0 ? (
+          {hasWordSync && line.words && line.words.length > 0 ? (
             line.words.map((word) => (
               <LyricWordItem key={word.id} word={word} timeMs={timeMs} />
             ))
           ) : (
-            <Animated.Text style={[styles.fallbackLineText, fallbackColorStyle]}>
+            <Animated.Text style={[styles.fallbackLineText, lineColorStyle]}>
               {line.text}
             </Animated.Text>
           )}
@@ -130,8 +145,15 @@ const styles = StyleSheet.create({
   },
   fallbackLineText: {
     fontSize: 22,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+    lineHeight: 34,
+  },
+  staticFallbackLineText: {
+    fontSize: 22,
     fontWeight: '500',
     letterSpacing: -0.2,
     lineHeight: 34,
+    color: '#71717A',
   },
 });

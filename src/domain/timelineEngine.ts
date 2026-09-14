@@ -14,10 +14,12 @@ export function createInitialHistory(initialLines: LyricLine[]): SyncHistoryStat
   };
 }
 
+const MAX_HISTORY_DEPTH = 50;
+
 /**
  * One-Tap Line Capture Workflow:
  * - Sets startMs of current active line.
- * - Sets endMs of previous line to current timeMs.
+ * - Sets endMs of previous line to current timeMs (only if previous line was synced).
  * - Advances focus index to activeIndex + 1.
  */
 export function markLineBoundary(
@@ -30,21 +32,34 @@ export function markLineBoundary(
     return { history, nextIndex: activeIndex };
   }
 
-  const updatedLines = currentLines.map((line) => ({
-    ...line,
-    words: line.words.map((w) => ({ ...w })),
-  }));
+  const updatedLines = [...currentLines];
+  const targetLine = currentLines[activeIndex];
 
   // Set startMs of active line
-  updatedLines[activeIndex].startMs = timeMs;
+  updatedLines[activeIndex] = {
+    ...targetLine,
+    startMs: timeMs,
+    words: targetLine.words.map((w) => ({ ...w })),
+  };
 
-  // Close previous line's endMs if previous line exists
+  // Close previous line's endMs ONLY IF previous line is synced (has startMs > 0)
   if (activeIndex > 0) {
-    updatedLines[activeIndex - 1].endMs = timeMs;
+    const prevLine = currentLines[activeIndex - 1];
+    if (prevLine.startMs > 0) {
+      updatedLines[activeIndex - 1] = {
+        ...prevLine,
+        endMs: timeMs,
+      };
+    }
   }
 
+  const newPast =
+    history.past.length >= MAX_HISTORY_DEPTH
+      ? history.past.slice(history.past.length - (MAX_HISTORY_DEPTH - 1))
+      : history.past;
+
   const nextHistory: SyncHistoryState = {
-    past: [...history.past, history.present],
+    past: [...newPast, history.present],
     present: updatedLines,
     future: [], // Clear redo history on new action
   };
@@ -58,6 +73,7 @@ export function markLineBoundary(
  * One-Tap Word Capture Workflow:
  * - Sets startMs of current word inside the specified line.
  * - Closes endMs of previous word in that line.
+ * - If starting word 0, closes previous line only if it was synced.
  * - Advances to wordIndex + 1.
  */
 export function markWordBoundary(
@@ -76,37 +92,64 @@ export function markWordBoundary(
     return { history, nextWordIndex: wordIndex };
   }
 
-  const updatedLines = currentLines.map((line, lIdx) => {
-    // Mark the active word inside the selected line
-    if (lIdx === lineIndex) {
-      const words = line.words.map((w) => ({ ...w }));
-      words[wordIndex].startMs = timeMs;
-      if (wordIndex > 0) {
-        words[wordIndex - 1].endMs = timeMs;
+  const targetLine = currentLines[lineIndex];
+  const newWords = [...targetLine.words];
+
+  // Close previous word in this same line
+  if (wordIndex > 0) {
+    newWords[wordIndex - 1] = {
+      ...newWords[wordIndex - 1],
+      endMs: timeMs,
+    };
+  }
+
+  // Set active word timestamp
+  newWords[wordIndex] = {
+    ...newWords[wordIndex],
+    startMs: timeMs,
+  };
+
+  // First word sets line startMs if not already set
+  const lineStartMs = wordIndex === 0 && targetLine.startMs === 0 ? timeMs : targetLine.startMs;
+
+  const updatedLines = [...currentLines];
+  updatedLines[lineIndex] = {
+    ...targetLine,
+    startMs: lineStartMs,
+    words: newWords,
+  };
+
+  // Starting a new line's first word closes the previous line (if previous line is synced)
+  if (wordIndex === 0 && lineIndex > 0) {
+    const prevLine = currentLines[lineIndex - 1];
+    if (prevLine.startMs > 0) {
+      const prevWords = [...prevLine.words];
+      if (prevWords.length > 0 && prevWords[prevWords.length - 1].startMs > 0) {
+        prevWords[prevWords.length - 1] = {
+          ...prevWords[prevWords.length - 1],
+          endMs: timeMs,
+        };
       }
-      // The first word also anchors the whole line
-      const startMs = wordIndex === 0 && line.startMs === 0 ? timeMs : line.startMs;
-      return { ...line, words, startMs };
+      updatedLines[lineIndex - 1] = {
+        ...prevLine,
+        endMs: timeMs,
+        words: prevWords,
+      };
     }
-    // Starting a new line's first word closes the previous line (and its last word)
-    if (lIdx === lineIndex - 1 && wordIndex === 0) {
-      const words = line.words.map((w) => ({ ...w }));
-      if (words.length > 0) {
-        words[words.length - 1].endMs = timeMs;
-      }
-      return { ...line, endMs: timeMs, words };
-    }
-    return line;
-  });
+  }
+
+  const newPast =
+    history.past.length >= MAX_HISTORY_DEPTH
+      ? history.past.slice(history.past.length - (MAX_HISTORY_DEPTH - 1))
+      : history.past;
 
   const nextHistory: SyncHistoryState = {
-    past: [...history.past, history.present],
+    past: [...newPast, history.present],
     present: updatedLines,
     future: [],
   };
 
-  const lineWords = currentLines[lineIndex].words;
-  const nextWordIndex = Math.min(lineWords.length - 1, wordIndex + 1);
+  const nextWordIndex = Math.min(targetLine.words.length - 1, wordIndex + 1);
 
   return { history: nextHistory, nextWordIndex };
 }
@@ -131,16 +174,29 @@ export function finishLastWord(
     return history;
   }
 
-  const updatedLines = currentLines.map((line, lIdx) => {
-    if (lIdx !== lineIndex) return line;
-    const words = line.words.map((w, wIdx) =>
-      wIdx === wordIndex ? { ...w, endMs: timeMs } : w
-    );
-    return { ...line, endMs: timeMs, words };
-  });
+  const targetLine = currentLines[lineIndex];
+  const newWords = [...targetLine.words];
+  if (newWords[wordIndex]) {
+    newWords[wordIndex] = {
+      ...newWords[wordIndex],
+      endMs: timeMs,
+    };
+  }
+
+  const updatedLines = [...currentLines];
+  updatedLines[lineIndex] = {
+    ...targetLine,
+    endMs: timeMs,
+    words: newWords,
+  };
+
+  const newPast =
+    history.past.length >= MAX_HISTORY_DEPTH
+      ? history.past.slice(history.past.length - (MAX_HISTORY_DEPTH - 1))
+      : history.past;
 
   return {
-    past: [...history.past, history.present],
+    past: [...newPast, history.present],
     present: updatedLines,
     future: [],
   };
@@ -408,8 +464,13 @@ export function resetAllTimestamps(history: SyncHistoryState): SyncHistoryState 
     })),
   }));
 
+  const newPast =
+    history.past.length >= MAX_HISTORY_DEPTH
+      ? history.past.slice(history.past.length - (MAX_HISTORY_DEPTH - 1))
+      : history.past;
+
   return {
-    past: [...history.past, history.present],
+    past: [...newPast, history.present],
     present: clearedLines,
     future: [],
   };
@@ -427,13 +488,19 @@ export function finishLastLine(
   const currentLines = history.present;
   if (lineIndex < 0 || lineIndex >= currentLines.length) return history;
 
-  const updatedLines = currentLines.map((line, idx) => {
-    if (idx !== lineIndex) return line;
-    return { ...line, endMs: durationMs };
-  });
+  const updatedLines = [...currentLines];
+  updatedLines[lineIndex] = {
+    ...currentLines[lineIndex],
+    endMs: durationMs,
+  };
+
+  const newPast =
+    history.past.length >= MAX_HISTORY_DEPTH
+      ? history.past.slice(history.past.length - (MAX_HISTORY_DEPTH - 1))
+      : history.past;
 
   return {
-    past: [...history.past, history.present],
+    past: [...newPast, history.present],
     present: updatedLines,
     future: [],
   };

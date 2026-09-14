@@ -1,7 +1,8 @@
 import * as SQLite from 'expo-sqlite';
-import { Track, LyricLine, LyricWord } from '../domain/lyrics';
+import { Image } from 'react-native';
+import { LyricLine, LyricWord, Track } from '../domain/lyrics';
 
-const DB_NAME = 'lyric_sync.db';
+const DB_NAME = 'lyric_sync_v4.db';
 
 let cachedDb: SQLite.SQLiteDatabase | null = null;
 let opening: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -91,35 +92,86 @@ async function seedDefaultTracks(db: SQLite.SQLiteDatabase) {
   if (existingTrack) return;
 
   const now = Date.now();
-  const trackId = 'sample-lonely-spider';
+  const trackId = 'sample-how-are-you-my-friend';
 
   await db.runAsync(
     `INSERT INTO tracks (id, title, artist, audioUri, coverUri, durationMs, syncStatus, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       trackId,
-      'Lonely Spider',
-      'Children Rhymes Studio',
-      'https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-new.mp3',
+      'How Are You, My Friend',
+      'Johnny Drille',
+      Image.resolveAssetSource(require('../../assets/audio/Johnny-Drille-How-Are-You-My-Friend-Vistanaij.com_.mp3')).uri,
       'https://images.unsplash.com/photo-1577083552431-6e5fd01aa342?w=400',
-      75000,
+      0, // duration will be set by player
       'draft',
       now,
       now,
     ]
   );
 
-  const spiderLines = [
-    'In a cave there lived a spider',
-    'He liked to drink warm apple cider',
-    'He liked to think about his life',
-    "He wondered if he'd ever have a wife",
-    'Lonely spider.',
-  ];
+  const lyricsText = `I know sometimes e be like say nobody send you
+That one na lie, I dey for you, my friend
 
-  for (let idx = 0; idx < spiderLines.length; idx++) {
-    const lineText = spiderLines[idx];
-    const lineId = `spider-line-${idx + 1}`;
+♫ ♬ 🥁
+Padi no vex for me
+Say I never call you since
+But I hope that you are well
+I hope your market sell
+Every day, I dey pray for you
+Make Baba God bless you
+I never forget you
+How I go forget you?
+See my shoulder, make you rest upon me
+You know I got you, na me be your friend indeed
+The money don show now, I don keep some for you
+You no go suffer rara
+'Cause anything I get na for me and you, yeah
+
+How are you, my friend?
+How do you do, my friend?
+I know sometimes e be like say nobody send you
+That one na lie, I dey for you my friend
+How are you, my friend?
+How do you do, my friend?
+I know sometimes e be like say nobody send you
+That one na lie, I dey for you my friend
+
+
+Ọ'rẹ' mí àtàtà
+You always dey my mind
+Padi mí gan, gan, gan
+I cherish you with my life
+No worry yourself o
+Everything go dey alright
+And if anybody try you
+You know it's gon' be on sight
+See my shoulder, make you rest upon me
+You know I got you, na me be your friend indeed
+Omo, the money don show now, I don keep some for you
+You no go suffer, rara
+'Cause anything I get na for me and you, yeah
+
+
+How are you, my friend? (I see you, my brother)
+How do you do, my friend? (I see you, my sister)
+I know sometimes e be like say nobody send you
+That one na lie, I dey for you my friend (my friend, it's been so long)
+How are you, my friend? (It's been so long)
+How do you do, my friend?
+I know sometimes e be like say nobody send you
+That one na lie (no be lie o), I dey for you my friend
+I know sometimes e be like say nobody send you
+That one na lie, I dey for you my friend
+I know that I don't call enough
+But you are always on my mind, oh
+I dey for you my friend`;
+
+  const lyricLines = lyricsText.split('\n').filter(l => l.trim().length > 0);
+
+  for (let idx = 0; idx < lyricLines.length; idx++) {
+    const lineText = lyricLines[idx];
+    const lineId = `lyric-line-${idx + 1}`;
     await db.runAsync(
       `INSERT INTO lyric_lines (id, trackId, text, startMs, endMs, lineIndex)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -131,7 +183,7 @@ async function seedDefaultTracks(db: SQLite.SQLiteDatabase) {
       await db.runAsync(
         `INSERT INTO lyric_words (id, lineId, text, startMs, endMs, wordIndex)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [`spider-word-${lineId}-${wIdx}`, lineId, words[wIdx], 0, 0, wIdx]
+        [`lyric-word-${lineId}-${wIdx}`, lineId, words[wIdx], 0, 0, wIdx]
       );
     }
   }
@@ -254,5 +306,26 @@ export async function saveTrackLyrics(trackId: string, lines: LyricLine[]): Prom
 export async function deleteTrack(trackId: string): Promise<void> {
   await withDatabase(async (db) => {
     await db.runAsync('DELETE FROM tracks WHERE id = ?', [trackId]);
+  });
+}
+
+export async function resetTrackSync(trackId: string): Promise<void> {
+  await withDatabase(async (db) => {
+    // Reset all lyric line timestamps to 0
+    await db.runAsync(
+      'UPDATE lyric_lines SET startMs = 0, endMs = 0 WHERE trackId = ?',
+      [trackId]
+    );
+    // Reset all word timestamps to 0 via their parent lines
+    await db.runAsync(
+      `UPDATE lyric_words SET startMs = 0, endMs = 0
+       WHERE lineId IN (SELECT id FROM lyric_lines WHERE trackId = ?)`,
+      [trackId]
+    );
+    // Reset track sync status back to draft
+    await db.runAsync(
+      'UPDATE tracks SET syncStatus = ?, updatedAt = ? WHERE id = ?',
+      ['draft', Date.now(), trackId]
+    );
   });
 }

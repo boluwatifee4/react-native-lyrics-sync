@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initDatabase } from '../services/db';
 import { BackButton } from '../components/BackButton';
 
@@ -32,32 +33,28 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#000000' },
-        }}
-      >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="player" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="editor"
-          options={{
-            headerShown: true,
-            headerTransparent: true,
-            headerTitle: '',
-            headerTintColor: '#F4F4F5',
-            headerLeft: () => <BackButton accessibilityLabel="Back to player" />,
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: '#000000' },
           }}
-        />
-      </Stack>
-    </SafeAreaProvider>
+        >
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="player" options={{ headerShown: false }} />
+          <Stack.Screen name="editor" options={{ headerShown: false }} />
+        </Stack>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   loaderContainer: {
     flex: 1,
     backgroundColor: '#000000',

@@ -4,11 +4,15 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   FlatList,
   ScrollView,
   Alert,
   Animated,
+  Image,
+  Platform,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
@@ -55,7 +59,7 @@ function useFlashAnim() {
     flashOpacity.setValue(1);
     Animated.timing(flashOpacity, {
       toValue: 0,
-      duration: 350,
+      duration: 200,
       useNativeDriver: true,
     }).start();
   }, [flashOpacity]);
@@ -63,8 +67,13 @@ function useFlashAnim() {
   return { flashOpacity, triggerFlash };
 }
 
+const DEFAULT_AUDIO_URI = Image.resolveAssetSource(
+  require('../../../../assets/audio/Johnny-Drille-How-Are-You-My-Friend-Vistanaij.com_.mp3')
+).uri;
+
 export const SyncEditorView: React.FC = () => {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const lyrics = usePlayerStore((s) => s.lyrics);
   const setPositionMs = usePlayerStore((s) => s.setPositionMs);
@@ -74,9 +83,19 @@ export const SyncEditorView: React.FC = () => {
 
   const [mode, setMode] = useState<'line' | 'word'>('line');
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<any>(null);
 
-  const audioUri = activeTrack?.audioUri || 'https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-new.mp3';
-  const player = useAudioPlayer(audioUri);
+  const showToast = useCallback((msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage(msg);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2200);
+  }, []);
+
+  const audioUri = activeTrack?.audioUri || DEFAULT_AUDIO_URI;
+  const player = useAudioPlayer(audioUri, { updateInterval: 100 });
   const status = useAudioPlayerStatus(player);
 
   const currentMs = Math.floor((status.currentTime || 0) * 1000);
@@ -94,15 +113,6 @@ export const SyncEditorView: React.FC = () => {
   const theme = Colors.dark;
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
-  const findNextUnsyncedLine = (lines: LyricLine[]): number => {
-    const i = lines.findIndex((l) => l.startMs <= 0);
-    return i === -1 ? lines.length : i;
-  };
-  const findNextUnsyncedWord = (line: LyricLine | undefined): number => {
-    if (!line || line.words.length === 0) return 0;
-    const i = line.words.findIndex((w) => w.startMs <= 0);
-    return i === -1 ? line.words.length : i;
-  };
 
   useEffect(() => {
     if (appliedTrackIdRef.current === activeTrack?.id) return;
@@ -112,7 +122,7 @@ export const SyncEditorView: React.FC = () => {
     setSelectedLineIndex(0);
     setActiveWordIndex(0);
     setMode('line');
-  }, [activeTrack?.id, lyrics]);
+  }, [activeTrack?.id]);
 
   const currentLines = history.present;
   const isLineSynced = (line: LyricLine): boolean => {
@@ -133,17 +143,16 @@ export const SyncEditorView: React.FC = () => {
     setMode('word');
     const li = clamp(activeLineIndex, 0, Math.max(currentLines.length - 1, 0));
     setSelectedLineIndex(li);
-    setActiveWordIndex(findNextUnsyncedWord(currentLines[li]));
+    setActiveWordIndex(0);
   }, [activeLineIndex, currentLines]);
 
   const switchToLineMode = useCallback(() => {
     setMode('line');
-    const next = findNextUnsyncedLine(currentLines);
-    setActiveLineIndex(next >= currentLines.length ? Math.max(currentLines.length - 1, 0) : next);
-  }, [currentLines]);
+    setActiveLineIndex(selectedLineIndex);
+  }, [selectedLineIndex]);
 
   const handleLineMark = useCallback(() => {
-    if (allSynced || currentLines.length === 0) return;
+    if (currentLines.length === 0) return;
 
     const idx = clamp(activeLineIndex, 0, currentLines.length - 1);
     const result = markLineBoundary(history, idx, currentMs);
@@ -156,27 +165,27 @@ export const SyncEditorView: React.FC = () => {
     setHistory(nextHistory);
     usePlayerStore.setState({ lyrics: nextHistory.present });
 
-    const next = findNextUnsyncedLine(nextHistory.present);
-    const nextActive = next >= nextHistory.present.length ? nextHistory.present.length - 1 : Math.max(next, 0);
+    // Advance sequentially to the next line
+    const nextActive = Math.min(idx + 1, currentLines.length - 1);
     setActiveLineIndex(nextActive);
     setSelectedLineIndex(nextActive);
 
     triggerFlash();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-    if (next < nextHistory.present.length) {
+    if (idx + 1 < currentLines.length) {
       setTimeout(() => {
         listRef.current?.scrollToIndex({
-          index: Math.min(next, currentLines.length - 1),
+          index: idx + 1,
           animated: true,
           viewPosition: 0.35,
         });
-      }, 100);
+      }, 50);
     }
-  }, [history, activeLineIndex, currentMs, currentLines, allSynced, totalMs, triggerFlash]);
+  }, [history, activeLineIndex, currentMs, currentLines, totalMs, triggerFlash]);
 
   const handleWordMark = useCallback(() => {
-    if (allSynced || currentLines.length === 0) return;
+    if (currentLines.length === 0) return;
 
     const li = clamp(selectedLineIndex, 0, currentLines.length - 1);
     const line = currentLines[li];
@@ -196,86 +205,117 @@ export const SyncEditorView: React.FC = () => {
     usePlayerStore.setState({ lyrics: nextHistory.present });
 
     triggerFlash();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-    const nextWord = findNextUnsyncedWord(nextHistory.present[li]);
-    if (nextWord < line.words.length) {
-      setActiveWordIndex(nextWord);
-    } else {
-      const nextLine = findNextUnsyncedLine(nextHistory.present);
-      const nextLineIdx = nextLine >= nextHistory.present.length ? nextHistory.present.length - 1 : Math.max(nextLine, 0);
+    if (wi + 1 < line.words.length) {
+      // Move to next word in this line
+      setActiveWordIndex(wi + 1);
+    } else if (li + 1 < currentLines.length) {
+      // Completed line words, advance cleanly to next line without looking back
+      const nextLineIdx = li + 1;
       setSelectedLineIndex(nextLineIdx);
       setActiveLineIndex(nextLineIdx);
       setActiveWordIndex(0);
+      setTimeout(() => {
+        listRef.current?.scrollToIndex({
+          index: nextLineIdx,
+          animated: true,
+          viewPosition: 0.35,
+        });
+      }, 50);
     }
-  }, [history, selectedLineIndex, activeWordIndex, currentMs, currentLines, allSynced, totalMs, triggerFlash]);
+  }, [history, selectedLineIndex, activeWordIndex, currentMs, currentLines, totalMs, triggerFlash]);
 
   const handleUndo = useCallback(async () => {
     if (history.past.length === 0) return;
 
     const wasPlaying = status.playing;
     if (wasPlaying) {
-      player.pause();
+      try {
+        player.pause();
+      } catch (e) {}
     }
 
     const nextHistory = undoSyncAction(history);
     setHistory(nextHistory);
     usePlayerStore.setState({ lyrics: nextHistory.present });
 
-    const nextLine = findNextUnsyncedLine(nextHistory.present);
-    const nextLineIdx = nextLine >= nextHistory.present.length ? nextHistory.present.length - 1 : Math.max(Math.min(nextLine, nextHistory.present.length - 1), 0);
-    setActiveLineIndex(nextLineIdx);
-    setSelectedLineIndex(nextLineIdx);
-    setActiveWordIndex(findNextUnsyncedWord(nextHistory.present[nextLineIdx]));
+    if (mode === 'word') {
+      if (activeWordIndex > 0) {
+        setActiveWordIndex(activeWordIndex - 1);
+      } else if (selectedLineIndex > 0) {
+        const prevLineIdx = selectedLineIndex - 1;
+        setSelectedLineIndex(prevLineIdx);
+        setActiveLineIndex(prevLineIdx);
+        const prevWords = nextHistory.present[prevLineIdx]?.words || [];
+        setActiveWordIndex(Math.max(0, prevWords.length - 1));
+      }
+    } else {
+      if (activeLineIndex > 0) {
+        const prevLineIdx = activeLineIndex - 1;
+        setActiveLineIndex(prevLineIdx);
+        setSelectedLineIndex(prevLineIdx);
+      }
+    }
 
-    const rewindTarget = Math.max(0, currentMs - 3000);
+    const rewindTarget = Math.max(0, currentMs - 2500);
     setPositionMs(rewindTarget);
     try {
-      await player.seekTo(rewindTarget / 1000);
+      player.seekTo(rewindTarget / 1000);
     } catch (e) {}
 
     if (wasPlaying) {
-      setTimeout(() => player.play(), 80);
+      setTimeout(() => {
+        try {
+          player.play();
+        } catch (e) {}
+      }, 80);
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-  }, [history, currentMs, player, setPositionMs, status.playing]);
+  }, [history, currentMs, mode, activeWordIndex, selectedLineIndex, activeLineIndex, player, setPositionMs, status.playing]);
+
+  const performReset = useCallback(() => {
+    const nextHistory = resetAllTimestamps(history);
+    setHistory(nextHistory);
+    setActiveLineIndex(0);
+    setSelectedLineIndex(0);
+    setActiveWordIndex(0);
+    usePlayerStore.setState({ lyrics: nextHistory.present });
+    try {
+      player.pause();
+      player.seekTo(0);
+    } catch (e) {}
+    setPositionMs(0);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    showToast('All timestamps reset ✓');
+  }, [history, player, setPositionMs, showToast]);
 
   const handleStartOver = useCallback(() => {
     Alert.alert(
-      'RESET TELEMETRY',
+      'RESET ALL TIMESTAMPS',
       'Clear all synchronization timestamps for this track?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Reset All',
           style: 'destructive',
-          onPress: () => {
-            const nextHistory = resetAllTimestamps(history);
-            setHistory(nextHistory);
-            setActiveLineIndex(0);
-            setSelectedLineIndex(0);
-            setActiveWordIndex(0);
-            usePlayerStore.setState({ lyrics: nextHistory.present });
-            player.pause();
-            player.seekTo(0);
-            setPositionMs(0);
-          },
+          onPress: performReset,
         },
       ]
     );
-  }, [history, player, setPositionMs]);
+  }, [performReset]);
 
   const handleSave = useCallback(async () => {
     if (!activeTrack) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    showToast('Saved to storage ✓');
     try {
       await saveTrackLyrics(activeTrack.id, currentLines);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('SAVED', 'Telemetry timestamps written to storage.');
     } catch (e: any) {
-      Alert.alert('Save Failed', e.message);
+      showToast('Save failed: ' + e.message);
     }
-  }, [activeTrack, currentLines]);
+  }, [activeTrack, currentLines, showToast]);
 
   const handleShift = useCallback((deltaMs: number) => {
     if (currentLines.length === 0) return;
@@ -301,10 +341,16 @@ export const SyncEditorView: React.FC = () => {
   }, [history]);
 
   const handleRestorePlayback = useCallback((targetMs: number) => {
-    player.pause();
-    setPositionMs(targetMs);
-    player.seekTo(targetMs / 1000);
-    setTimeout(() => player.play(), 60);
+    try {
+      player.pause();
+      setPositionMs(targetMs);
+      player.seekTo(targetMs / 1000);
+      setTimeout(() => {
+        try {
+          player.play();
+        } catch (e) {}
+      }, 60);
+    } catch (e) {}
   }, [player, setPositionMs]);
 
   const handleExportLrc = useCallback(async () => {
@@ -318,17 +364,23 @@ export const SyncEditorView: React.FC = () => {
   }, [activeTrack, currentLines]);
 
   const togglePlayPause = () => {
-    if (status.playing) {
-      player.pause();
-    } else {
-      player.play();
+    try {
+      if (status.playing) {
+        player.pause();
+      } else {
+        player.play();
+      }
+    } catch (e) {
+      console.warn('Sync togglePlayPause error:', e);
     }
   };
 
   const handleSeek = (offsetMs: number) => {
-    const target = Math.max(0, Math.min(totalMs, currentMs + offsetMs));
-    player.seekTo(target / 1000);
-    setPositionMs(target);
+    try {
+      const target = Math.max(0, Math.min(totalMs, currentMs + offsetMs));
+      player.seekTo(target / 1000);
+      setPositionMs(target);
+    } catch (e) {}
   };
 
   const formatPreciseMs = (ms: number) => {
@@ -347,7 +399,20 @@ export const SyncEditorView: React.FC = () => {
   return (
     <View style={styles.container}>
       {/* ─── TELEMETRY HEADER ─── */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 14) }]}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          hitSlop={8}
+          activeOpacity={0.65}
+        >
+          <Ionicons
+            name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
+            size={20}
+            color={Colors.dark.textPrimary}
+          />
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.trackDetails}
           onPress={() => setIsLibraryModalOpen(true)}
@@ -396,12 +461,20 @@ export const SyncEditorView: React.FC = () => {
           </View>
         </View>
 
-        {/* Minimal Mode Selector */}
+        {/* Prominent Mode Selector */}
         <View style={styles.modeSegment}>
           <TouchableOpacity
             style={[styles.modeSegmentBtn, mode === 'line' && styles.modeSegmentActive]}
             onPress={switchToLineMode}
+            hitSlop={6}
+            activeOpacity={0.7}
           >
+            <Ionicons
+              name="reorder-two-outline"
+              size={16}
+              color={mode === 'line' ? '#FFFFFF' : '#71717A'}
+              style={{ marginRight: 5 }}
+            />
             <Text style={[styles.modeSegmentText, mode === 'line' && styles.modeSegmentTextActive]}>
               LINE
             </Text>
@@ -409,7 +482,15 @@ export const SyncEditorView: React.FC = () => {
           <TouchableOpacity
             style={[styles.modeSegmentBtn, mode === 'word' && styles.modeSegmentActive]}
             onPress={switchToWordMode}
+            hitSlop={6}
+            activeOpacity={0.7}
           >
+            <Ionicons
+              name="text-outline"
+              size={15}
+              color={mode === 'word' ? '#FFFFFF' : '#71717A'}
+              style={{ marginRight: 5 }}
+            />
             <Text style={[styles.modeSegmentText, mode === 'word' && styles.modeSegmentTextActive]}>
               WORD
             </Text>
@@ -451,10 +532,10 @@ export const SyncEditorView: React.FC = () => {
                 state === 'active' && styles.tableRowActive,
                 state === 'synced' && styles.tableRowSynced,
               ]}
-              disabled={mode === 'line'}
               onPress={() => {
+                setActiveLineIndex(index);
                 setSelectedLineIndex(index);
-                setActiveWordIndex(findNextUnsyncedWord(currentLines[index]));
+                setActiveWordIndex(0);
               }}
               activeOpacity={0.7}
             >
@@ -618,10 +699,13 @@ export const SyncEditorView: React.FC = () => {
             <Text style={styles.actuatorDisabledSub}>Switch to Line Mode or re-import</Text>
           </View>
         ) : mode === 'word' ? (
-          <TouchableOpacity
-            style={styles.markActuator}
-            onPress={handleWordMark}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.markActuator,
+              pressed && styles.markActuatorPressed,
+            ]}
+            onPressIn={handleWordMark}
+            hitSlop={8}
           >
             <View style={styles.actuatorTelemetryRow}>
               <Text style={styles.actuatorCue}>TAP TO CAPTURE WORD</Text>
@@ -635,12 +719,15 @@ export const SyncEditorView: React.FC = () => {
             <Text style={styles.actuatorTargetText} numberOfLines={1}>
               {nextWordText}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         ) : (
-          <TouchableOpacity
-            style={styles.markActuator}
-            onPress={handleLineMark}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.markActuator,
+              pressed && styles.markActuatorPressed,
+            ]}
+            onPressIn={handleLineMark}
+            hitSlop={8}
           >
             <View style={styles.actuatorTelemetryRow}>
               <Text style={styles.actuatorCue}>TAP TO CAPTURE LINE</Text>
@@ -652,27 +739,54 @@ export const SyncEditorView: React.FC = () => {
             <Text style={styles.actuatorTargetText} numberOfLines={2}>
               {nextLineText}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         )}
 
-        {/* Utility bottom bar */}
+        {/* Modern Utility Bottom Action Bar */}
         <View style={styles.utilityBar}>
-          <TouchableOpacity style={styles.utilityBtn} onPress={handleStartOver} hitSlop={6}>
+          <TouchableOpacity
+            style={styles.utilityResetBtn}
+            onPress={handleStartOver}
+            hitSlop={6}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh-outline" size={15} color="#FF453A" style={{ marginRight: 6 }} />
             <Text style={styles.utilityResetText}>RESET ALL</Text>
           </TouchableOpacity>
 
           <View style={styles.utilityRightGroup}>
-            <TouchableOpacity style={styles.utilityBtn} onPress={() => setIsFineTuneOpen(true)} hitSlop={6}>
+            <TouchableOpacity
+              style={styles.utilityFineTuneBtn}
+              onPress={() => setIsFineTuneOpen(true)}
+              hitSlop={6}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="options-outline" size={15} color="#D4D4D8" style={{ marginRight: 6 }} />
               <Text style={styles.utilityText}>FINE TUNE</Text>
             </TouchableOpacity>
+
             {!allSynced && (
-              <TouchableOpacity style={styles.utilityBtn} onPress={handleSave} hitSlop={6}>
+              <TouchableOpacity
+                style={styles.utilitySaveBtn}
+                onPress={handleSave}
+                hitSlop={6}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="cloud-upload-outline" size={15} color="#000000" style={{ marginRight: 6 }} />
                 <Text style={styles.utilitySaveText}>SAVE DRAFT</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
       </View>
+
+      {/* ─── FLOATING TOAST BADGE ─── */}
+      {toastMessage && (
+        <View style={[styles.toastContainer, { top: Math.max(insets.top + 50, 60) }]}>
+          <Ionicons name="checkmark-circle" size={16} color="#30D158" style={{ marginRight: 6 }} />
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </View>
+      )}
 
       {/* ─── MODALS ─── */}
       <ImportTrackModal
@@ -714,6 +828,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#18181B',
   },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: Colors.dark.hairlineActive,
+    backgroundColor: Colors.dark.surfaceHighlight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
   trackDetails: {
     flex: 1,
   },
@@ -752,7 +877,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#18181B',
     backgroundColor: '#050507',
@@ -763,44 +888,51 @@ const styles = StyleSheet.create({
   },
   syncStatsLabel: {
     color: '#71717A',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '600',
     letterSpacing: 0.8,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   syncProgressGauge: {
-    height: 2,
+    height: 3,
     backgroundColor: '#18181B',
-    borderRadius: 1,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   syncProgressFill: {
     height: '100%',
     backgroundColor: '#3E9BFF',
-    borderRadius: 1,
+    borderRadius: 2,
   },
   modeSegment: {
     flexDirection: 'row',
-    backgroundColor: '#0A0A0E',
+    backgroundColor: '#121217',
     borderWidth: 1,
-    borderColor: '#18181B',
-    borderRadius: 2,
+    borderColor: '#27272A',
+    borderRadius: 8,
+    padding: 3,
   },
   modeSegmentBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 6,
   },
   modeSegmentActive: {
-    backgroundColor: '#181822',
+    backgroundColor: '#272732',
+    borderWidth: 1,
+    borderColor: '#3E9BFF',
   },
   modeSegmentText: {
-    color: '#52525B',
-    fontSize: 9,
+    color: '#71717A',
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.8,
   },
   modeSegmentTextActive: {
-    color: '#3E9BFF',
+    color: '#FFFFFF',
   },
   flashOverlay: {
     position: 'absolute',
@@ -995,6 +1127,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 8,
   },
+  markActuatorPressed: {
+    backgroundColor: '#121220',
+    borderColor: '#60A5FA',
+    transform: [{ scale: 0.99 }],
+  },
   actuatorTelemetryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1095,30 +1232,81 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 6,
   },
-  utilityBtn: {
-    paddingVertical: 4,
+  utilityResetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1314',
+    borderWidth: 1,
+    borderColor: '#381E20',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
   },
   utilityResetText: {
     color: '#FF453A',
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     letterSpacing: 0.6,
   },
   utilityRightGroup: {
     flexDirection: 'row',
-    gap: 14,
+    alignItems: 'center',
+    gap: 8,
+  },
+  utilityFineTuneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  utilitySaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#30D158',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
   },
   utilityText: {
-    color: '#A1A1AA',
-    fontSize: 10,
-    fontWeight: '600',
+    color: '#E4E4E7',
+    fontSize: 11,
+    fontWeight: '700',
     letterSpacing: 0.6,
   },
   utilitySaveText: {
-    color: '#30D158',
-    fontSize: 10,
-    fontWeight: '600',
+    color: '#000000',
+    fontSize: 11,
+    fontWeight: '700',
     letterSpacing: 0.6,
+  },
+  toastContainer: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#30D158',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 999,
+  },
+  toastText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });

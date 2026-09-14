@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -12,6 +12,10 @@ import { TrackLibraryModal } from '../features/player/components/TrackLibraryMod
 import { ImportTrackModal } from '../features/creator/components/ImportTrackModal';
 import { AudioLoadingOverlay } from '../components/AudioLoadingOverlay';
 import { Colors } from '../constants/theme';
+
+const DEFAULT_AUDIO_URI = Image.resolveAssetSource(
+  require('../../assets/audio/Johnny-Drille-How-Are-You-My-Friend-Vistanaij.com_.mp3')
+).uri;
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
@@ -27,13 +31,18 @@ export default function PlayerScreen() {
 
   const { autoplay } = useLocalSearchParams<{ autoplay?: string }>();
   const autoplayConsumed = useRef(false);
+  const [autoplayTimedOut, setAutoplayTimedOut] = useState(false);
 
-  const audioUri = activeTrack?.audioUri || 'https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-new.mp3';
-  const player = useAudioPlayer(audioUri);
+  const audioUri = activeTrack?.audioUri || DEFAULT_AUDIO_URI;
+  const player = useAudioPlayer(audioUri, { updateInterval: 100 });
   const status = useAudioPlayerStatus(player);
 
   const { timeMs } = useAudioSync();
   const theme = Colors.dark;
+
+  const lastPositionRef = useRef(-1);
+  const lastDurationRef = useRef(-1);
+  const lastPlayingRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
@@ -48,46 +57,82 @@ export default function PlayerScreen() {
       !status.playing
     ) {
       autoplayConsumed.current = true;
-      player.play();
+      try {
+        player.play();
+      } catch (e) {
+        console.warn('Autoplay error:', e);
+      }
     }
   }, [autoplay, status.isLoaded, status.playing, player]);
+
+  // If the audio never becomes ready, dismiss the loading HUD so the
+  // screen doesn't look stuck (user can still hit play manually).
+  useEffect(() => {
+    if (autoplay !== '1' || autoplayConsumed.current || status.playing) return;
+    if (status.isLoaded) return;
+    const timer = setTimeout(() => setAutoplayTimedOut(true), 8000);
+    return () => clearTimeout(timer);
+  }, [autoplay, autoplayConsumed, status.isLoaded, status.playing]);
 
   useEffect(() => {
     if (status) {
       const curMs = Math.floor((status.currentTime || 0) * 1000);
       const durMs = Math.floor((status.duration || 0) * 1000);
-      setPositionMs(curMs);
-      if (durMs > 0) setDurationMs(durMs);
-      setIsPlaying(status.playing);
+      const qMs = Math.floor(curMs / 200) * 200;
+
+      if (qMs !== lastPositionRef.current) {
+        lastPositionRef.current = qMs;
+        setPositionMs(curMs);
+      }
+      if (durMs > 0 && durMs !== lastDurationRef.current) {
+        lastDurationRef.current = durMs;
+        setDurationMs(durMs);
+      }
+      if (status.playing !== lastPlayingRef.current) {
+        lastPlayingRef.current = status.playing;
+        setIsPlaying(status.playing);
+      }
     }
   }, [status.currentTime, status.duration, status.playing, setPositionMs, setDurationMs, setIsPlaying]);
 
-  const togglePlayPause = () => {
-    if (status.playing) {
-      player.pause();
-    } else {
-      player.play();
+  const togglePlayPause = useCallback(() => {
+    try {
+      if (status.playing) {
+        player.pause();
+      } else {
+        player.play();
+      }
+    } catch (e) {
+      console.warn('togglePlayPause error:', e);
     }
-  };
+  }, [status.playing, player]);
 
-  const handleSeekOffset = (offsetMs: number) => {
-    const targetMs = Math.max(0, Math.min((status.duration || 0) * 1000, status.currentTime * 1000 + offsetMs));
-    player.seekTo(targetMs / 1000);
-    setPositionMs(targetMs);
-  };
-
-  const handleNativeLineSeek = (targetMs: number) => {
-    if (targetMs > 0) {
+  const handleSeekOffset = useCallback((offsetMs: number) => {
+    try {
+      const cur = Math.floor((status.currentTime || 0) * 1000);
+      const dur = Math.floor((status.duration || 0) * 1000);
+      const targetMs = Math.max(0, Math.min(dur, cur + offsetMs));
       player.seekTo(targetMs / 1000);
       setPositionMs(targetMs);
+    } catch (e) {
+      console.warn('seekOffset error:', e);
     }
-  };
+  }, [status.currentTime, status.duration, player, setPositionMs]);
+
+  const handleNativeLineSeek = useCallback((targetMs: number) => {
+    try {
+      if (targetMs >= 0) {
+        player.seekTo(targetMs / 1000);
+        setPositionMs(targetMs);
+      }
+    } catch (e) {
+      console.warn('lineSeek error:', e);
+    }
+  }, [player, setPositionMs]);
 
   const handleOpenEditor = () => {
     router.push('/editor');
   };
-
-
 
   const formatMs = (ms: number) => {
     const totalSec = Math.floor(Math.max(0, ms) / 1000);
@@ -242,9 +287,12 @@ export default function PlayerScreen() {
       />
 
       {/* ─── AUDIO LOADING HUD ─── */}
-      {autoplay === '1' && !autoplayConsumed.current && !status.playing && (
-        <AudioLoadingOverlay />
-      )}
+      {autoplay === '1' &&
+        !autoplayConsumed.current &&
+        !status.playing &&
+        !autoplayTimedOut && (
+          <AudioLoadingOverlay />
+        )}
     </View>
   );
 }
