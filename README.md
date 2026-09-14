@@ -1,5 +1,7 @@
 # Lyric Sync 🎵
 
+*Inspired by the Spotify lyrics experience.*
+
 A React Native app for creating and playing back **synchronized lyrics** — like karaoke, but you control the timing. Import any song, tap along to mark when each line starts, save your sync, and watch the lyrics scroll in real-time during playback.
 
 Built with Expo SDK 57, TypeScript, and the React Native New Architecture.
