@@ -1,18 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
-import { usePlayerStore } from '../../features/player/store/usePlayerStore';
-import { useAudioSync } from '../../features/synchronization/hooks/useAudioSync';
-import { SynchronizedLyricsView } from '../../features/synchronization/components/SynchronizedLyricsView';
-import { AudioWaveform } from '../../features/synchronization/components/AudioWaveform';
-import { TrackLibraryModal } from '../../features/player/components/TrackLibraryModal';
-import { ImportTrackModal } from '../../features/creator/components/ImportTrackModal';
-import { Colors } from '../../constants/theme';
+import { usePlayerStore } from '../features/player/store/usePlayerStore';
+import { useAudioSync } from '../features/synchronization/hooks/useAudioSync';
+import { SynchronizedLyricsView } from '../features/synchronization/components/SynchronizedLyricsView';
+import { AudioWaveform } from '../features/synchronization/components/AudioWaveform';
+import { TrackLibraryModal } from '../features/player/components/TrackLibraryModal';
+import { ImportTrackModal } from '../features/creator/components/ImportTrackModal';
+import { AudioLoadingOverlay } from '../components/AudioLoadingOverlay';
+import { Colors } from '../constants/theme';
 
-export default function ListenerPlayerScreen() {
+export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const lyrics = usePlayerStore((s) => s.lyrics);
   const setPositionMs = usePlayerStore((s) => s.setPositionMs);
@@ -22,6 +25,9 @@ export default function ListenerPlayerScreen() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
 
+  const { autoplay } = useLocalSearchParams<{ autoplay?: string }>();
+  const autoplayConsumed = useRef(false);
+
   const audioUri = activeTrack?.audioUri || 'https://etseverywhere.com/podpress_trac/web/259/0/lonely-spider-new.mp3';
   const player = useAudioPlayer(audioUri);
   const status = useAudioPlayerStatus(player);
@@ -29,17 +35,27 @@ export default function ListenerPlayerScreen() {
   const { timeMs } = useAudioSync();
   const theme = Colors.dark;
 
-  // Enable audio in silent mode on iOS
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
   }, []);
 
-  // Synchronize real AudioPlayer status to Zustand state & Reanimated clock
+  // Auto-play once the audio is loaded and ready
+  useEffect(() => {
+    if (
+      autoplay === '1' &&
+      !autoplayConsumed.current &&
+      status.isLoaded &&
+      !status.playing
+    ) {
+      autoplayConsumed.current = true;
+      player.play();
+    }
+  }, [autoplay, status.isLoaded, status.playing, player]);
+
   useEffect(() => {
     if (status) {
       const curMs = Math.floor((status.currentTime || 0) * 1000);
       const durMs = Math.floor((status.duration || 0) * 1000);
-
       setPositionMs(curMs);
       if (durMs > 0) setDurationMs(durMs);
       setIsPlaying(status.playing);
@@ -67,6 +83,12 @@ export default function ListenerPlayerScreen() {
     }
   };
 
+  const handleOpenEditor = () => {
+    router.push('/editor');
+  };
+
+
+
   const formatMs = (ms: number) => {
     const totalSec = Math.floor(Math.max(0, ms) / 1000);
     const min = Math.floor(totalSec / 60);
@@ -83,7 +105,12 @@ export default function ListenerPlayerScreen() {
           <Ionicons name="folder-open-outline" size={16} color="#000000" />
           <Text style={styles.primaryActionText}>Open Track Library</Text>
         </TouchableOpacity>
-        <TrackLibraryModal visible={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
+        <TrackLibraryModal
+          visible={isLibraryOpen}
+          onClose={() => setIsLibraryOpen(false)}
+          onOpenImport={() => setIsImportOpen(true)}
+        />
+        <ImportTrackModal visible={isImportOpen} onClose={() => setIsImportOpen(false)} />
       </View>
     );
   }
@@ -96,6 +123,19 @@ export default function ListenerPlayerScreen() {
     <View style={styles.container}>
       {/* ─── TRACK TELEMETRY HEADER ─── */}
       <View style={[styles.trackHeader, { paddingTop: Math.max(insets.top, 14) }]}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          hitSlop={8}
+          activeOpacity={0.65}
+        >
+          <Ionicons
+            name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
+            size={22}
+            color={Colors.dark.textPrimary}
+          />
+        </TouchableOpacity>
+
         <Image
           source={{ uri: activeTrack.coverUri || 'https://picsum.photos/400/400' }}
           style={styles.coverArt}
@@ -119,10 +159,10 @@ export default function ListenerPlayerScreen() {
 
         <TouchableOpacity
           style={styles.headerActionBtn}
-          onPress={() => setIsLibraryOpen(true)}
+          onPress={handleOpenEditor}
           hitSlop={8}
         >
-          <Ionicons name="albums-outline" size={18} color="#A1A1AA" />
+          <Ionicons name="create-outline" size={20} color={theme.accent} />
         </TouchableOpacity>
       </View>
 
@@ -144,7 +184,6 @@ export default function ListenerPlayerScreen() {
 
       {/* ─── INSTRUMENTATION TRANSPORT FOOTER ─── */}
       <View style={styles.playerFooter}>
-        {/* Progress gauge */}
         <View style={styles.progressRow}>
           <Text style={styles.timeText}>{formatMs(currentMs)}</Text>
           <View style={styles.progressBarBackground}>
@@ -158,7 +197,6 @@ export default function ListenerPlayerScreen() {
           <Text style={styles.timeText}>{formatMs(totalMs)}</Text>
         </View>
 
-        {/* Transport buttons */}
         <View style={styles.controlsRow}>
           <TouchableOpacity
             style={styles.controlBtn}
@@ -202,6 +240,11 @@ export default function ListenerPlayerScreen() {
         visible={isImportOpen}
         onClose={() => setIsImportOpen(false)}
       />
+
+      {/* ─── AUDIO LOADING HUD ─── */}
+      {autoplay === '1' && !autoplayConsumed.current && !status.playing && (
+        <AudioLoadingOverlay />
+      )}
     </View>
   );
 }
@@ -254,6 +297,17 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#18181B',
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: Colors.dark.hairlineActive,
+    backgroundColor: Colors.dark.surfaceHighlight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
   },
   coverArt: {
     width: 40,

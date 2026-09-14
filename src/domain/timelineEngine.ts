@@ -378,13 +378,14 @@ export function buildLrcText(lines: LyricLine[]): string {
   const blocks: string[] = ['[ti:Lyric Sync]'];
   for (const line of lines) {
     if (line.startMs <= 0) continue;
-    blocks.push(`${formatLrcTimestamp(line.startMs)}${line.text}`);
     if (line.words && line.words.length > 0 && line.words.length < 12) {
-      // Optional word-level offset tag (enhanced LRC) — kept minimal
+      // Enhanced LRC with word-level timestamps
       const wordTag = line.words
         .map((w) => `<${formatLrcTimestamp(w.startMs)}>${w.text}`)
         .join('');
       blocks.push(`${formatLrcTimestamp(line.startMs)}${wordTag}`);
+    } else {
+      blocks.push(`${formatLrcTimestamp(line.startMs)}${line.text}`);
     }
   }
 

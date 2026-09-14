@@ -117,12 +117,17 @@ export function findActiveWordIndex(words: LyricWord[], timeMs: number): number 
   }
 
   for (let i = 0; i < words.length - 1; i++) {
-    if (timeMs >= words[i].endMs && timeMs < words[i + 1].startMs) {
+    if (
+      words[i].endMs > 0 &&
+      words[i + 1].startMs > 0 &&
+      timeMs >= words[i].endMs &&
+      timeMs < words[i + 1].startMs
+    ) {
       return i;
     }
   }
 
-  return words.length > 0 && timeMs >= words[0].startMs ? 0 : -1;
+  return words.length > 0 && timeMs >= words[0].startMs && words[0].startMs > 0 ? 0 : -1;
 }
 
 /**

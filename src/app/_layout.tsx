@@ -3,21 +3,16 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { initDatabase, fetchTrackWithLyrics } from '../services/db';
-import { usePlayerStore } from '../features/player/store/usePlayerStore';
+import { initDatabase } from '../services/db';
+import { BackButton } from '../components/BackButton';
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
-  const setActiveTrack = usePlayerStore((s) => s.setActiveTrack);
 
   useEffect(() => {
     async function prepare() {
       try {
         await initDatabase();
-        const data = await fetchTrackWithLyrics('sample-1');
-        if (data) {
-          setActiveTrack(data.track, data.lines);
-        }
       } catch (e) {
         console.error('Failed to initialize app database:', e);
       } finally {
@@ -25,7 +20,7 @@ export default function RootLayout() {
       }
     }
     prepare();
-  }, [setActiveTrack]);
+  }, []);
 
   if (!isReady) {
     return (
@@ -46,7 +41,17 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="player" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="editor"
+          options={{
+            headerShown: true,
+            headerTransparent: true,
+            headerTitle: '',
+            headerTintColor: '#F4F4F5',
+            headerLeft: () => <BackButton accessibilityLabel="Back to player" />,
+          }}
+        />
       </Stack>
     </SafeAreaProvider>
   );

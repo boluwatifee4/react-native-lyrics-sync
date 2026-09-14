@@ -21,9 +21,10 @@ import { Colors } from '../../../constants/theme';
 interface ImportTrackModalProps {
   visible: boolean;
   onClose: () => void;
+  onImportComplete?: (trackId: string) => void;
 }
 
-export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onClose }) => {
+export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onClose, onImportComplete }) => {
   const [audioType, setAudioType] = useState<'url' | 'file'>('url');
   const [audioUrlInput, setAudioUrlInput] = useState('');
   const [title, setTitle] = useState('');
@@ -150,7 +151,11 @@ export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onC
         'INGESTION COMPLETE',
         `"${newTrack.title}" successfully ingested with ${parsedLines.length} lines.`
       );
-      onClose();
+      if (onImportComplete) {
+        onImportComplete(newTrack.id);
+      } else {
+        onClose();
+      }
     } catch (e: any) {
       console.error('Import track error:', e);
       Alert.alert('Ingestion Failed', e.message || String(e));
