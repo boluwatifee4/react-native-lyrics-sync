@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
+  ScrollView,
   Modal,
   Alert,
-  ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { createTrack } from '../../../services/db';
@@ -24,7 +24,12 @@ interface ImportTrackModalProps {
   onImportComplete?: (trackId: string) => void;
 }
 
-export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onClose, onImportComplete }) => {
+export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({
+  visible,
+  onClose,
+  onImportComplete,
+}) => {
+  const insets = useSafeAreaInsets();
   const [audioType, setAudioType] = useState<'url' | 'file'>('url');
   const [audioUrlInput, setAudioUrlInput] = useState('');
   const [title, setTitle] = useState('');
@@ -163,8 +168,17 @@ export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onC
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <SafeAreaView style={styles.container}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" statusBarTranslucent={true} onRequestClose={onClose}>
+      <View
+        style={[
+          styles.container,
+          {
+            paddingTop: Math.max(insets.top, 16),
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+          },
+        ]}
+      >
         {/* ─── WORKFLOW TITLEBAR ─── */}
         <View style={styles.header}>
           <View>
@@ -176,7 +190,13 @@ export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onC
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: Math.max(insets.bottom, 20) + 24 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
           {/* ─── STEP 01: AUDIO SOURCE ─── */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -296,7 +316,7 @@ export const ImportTrackModal: React.FC<ImportTrackModalProps> = ({ visible, onC
             <Text style={styles.submitText}>INITIALIZE TRACK & SYNCHRONIZER</Text>
           </TouchableOpacity>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };

@@ -4,6 +4,23 @@ A React Native app for creating and playing back **synchronized lyrics** — lik
 
 Built with Expo SDK 57, TypeScript, and the React Native New Architecture.
 
+### 📱 Try It Now!
+Download the Android APK (EAS Preview Build):
+**[Download Lyric Sync APK](https://expo.dev/artifacts/eas/8qj8zq-6r7H_h-eDJljKy988nQ2aKCaETpAtf9fSlOU.apk)**
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="assets/images/home.png" width="30%" />
+  <img src="assets/images/lyric-sync-player.png" width="30%" />
+  <img src="assets/images/import.png" width="30%" />
+</p>
+<p align="center">
+  <img src="assets/images/editor-line.png" width="30%" />
+  <img src="assets/images/editor-word.png" width="30%" />
+  <img src="assets/images/fine-tune.png" width="30%" />
+</p>
+
 ---
 
 ## Features

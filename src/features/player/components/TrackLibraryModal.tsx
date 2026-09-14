@@ -1,19 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Modal,
   FlatList,
+  Modal,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchAllTracks, fetchTrackWithLyrics, deleteTrack } from '../../../services/db';
-import { usePlayerStore } from '../store/usePlayerStore';
 import { Track } from '../../../domain/lyrics';
-import { Colors } from '../../../constants/theme';
+import { fetchAllTracks, deleteTrack, fetchTrackWithLyrics } from '../../../services/db';
+import { usePlayerStore } from '../store/usePlayerStore';
 
 interface TrackLibraryModalProps {
   visible: boolean;
@@ -26,17 +25,21 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
   onClose,
   onOpenImport,
 }) => {
+  const insets = useSafeAreaInsets();
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(false);
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const setActiveTrack = usePlayerStore((s) => s.setActiveTrack);
-  const theme = Colors.dark;
 
   const loadTracks = async () => {
+    setLoading(true);
     try {
       const all = await fetchAllTracks();
       setTracks(all);
     } catch (e) {
       console.error('Failed to load tracks:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -46,6 +49,24 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
     }
   }, [visible]);
 
+  const handleDelete = async (track: Track) => {
+    Alert.alert(
+      'Delete Song',
+      `Delete "${track.title}" and its lyrics?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteTrack(track.id);
+            loadTracks();
+          },
+        },
+      ]
+    );
+  };
+
   const handleSelectTrack = async (trackId: string) => {
     const data = await fetchTrackWithLyrics(trackId);
     if (data) {
@@ -54,28 +75,7 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
     }
   };
 
-  const handleDeleteTrack = async (trackId: string, trackTitle: string) => {
-    Alert.alert('DELETE TRACK', `Remove "${trackTitle}" and its synchronization data?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteTrack(trackId);
-          await loadTracks();
-          if (activeTrack?.id === trackId) {
-            const remaining = tracks.filter((t) => t.id !== trackId);
-            if (remaining.length > 0) {
-              const next = await fetchTrackWithLyrics(remaining[0].id);
-              if (next) setActiveTrack(next.track, next.lines);
-            }
-          }
-        },
-      },
-    ]);
-  };
-
-  const getStatusTelemetry = (status: string) => {
+  const getStatusTelemetry = (status: Track['syncStatus']) => {
     switch (status) {
       case 'word_synced':
         return { label: 'WORD SYNCED', color: '#30D158' };
@@ -87,8 +87,17 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <SafeAreaView style={styles.container}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" statusBarTranslucent={true} onRequestClose={onClose}>
+      <View
+        style={[
+          styles.container,
+          {
+            paddingTop: Math.max(insets.top, 16),
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+          },
+        ]}
+      >
         {/* ─── TITLEBAR ─── */}
         <View style={styles.header}>
           <View>
@@ -118,7 +127,10 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
         <FlatList
           data={tracks}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            { paddingBottom: Math.max(insets.bottom, 20) + 16 },
+          ]}
           renderItem={({ item, index }) => {
             const isActive = item.id === activeTrack?.id;
             const status = getStatusTelemetry(item.syncStatus);
@@ -165,7 +177,7 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
                 {item.id !== 'sample-1' && (
                   <TouchableOpacity
                     style={styles.deleteBtn}
-                    onPress={() => handleDeleteTrack(item.id, item.title)}
+                    onPress={() => handleDelete(item)}
                     hitSlop={8}
                   >
                     <Ionicons name="trash-outline" size={16} color="#71717A" />
@@ -175,7 +187,7 @@ export const TrackLibraryModal: React.FC<TrackLibraryModalProps> = ({
             );
           }}
         />
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };

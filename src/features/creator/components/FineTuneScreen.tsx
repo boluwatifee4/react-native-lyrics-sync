@@ -7,7 +7,7 @@ import {
   FlatList,
   Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LyricLine } from '../../../domain/lyrics';
 import { Colors } from '../../../constants/theme';
@@ -192,6 +192,7 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
   onNudgeLine,
   onNudgeWord,
 }) => {
+  const insets = useSafeAreaInsets();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const theme = Colors.dark;
 
@@ -217,8 +218,23 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
   );
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      statusBarTranslucent={true}
+      onRequestClose={onClose}
+    >
+      <View
+        style={[
+          styles.container,
+          {
+            paddingTop: Math.max(insets.top, 16),
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+          },
+        ]}
+      >
         {/* ─── WORKSTATION TITLEBAR ─── */}
         <View style={styles.titleBar}>
           <View style={styles.titleInfo}>
@@ -256,13 +272,16 @@ export const FineTuneScreen: React.FC<FineTuneScreenProps> = ({
           data={lines}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={styles.tableList}
+          contentContainerStyle={[
+            styles.tableList,
+            { paddingBottom: Math.max(insets.bottom, 20) + 16 },
+          ]}
           showsVerticalScrollIndicator={false}
           initialNumToRender={12}
           maxToRenderPerBatch={8}
           windowSize={7}
         />
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };
